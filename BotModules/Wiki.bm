@@ -93,32 +93,32 @@ my $uniqueid;
 
 $wikiquery=~s/[ \?]*$//g ; #Zap trailing space(s) or question mark(s)
 
-my $dbh = DBI->connect("DBI:mysql:phpwiki:172.16.1.254","funkbot",undef);
+my $wikidbh = DBI->connect("DBI:mysql:phpwiki:172.16.1.254","funkbot",undef);
 
-$dbh or die "Unable to connect to wiki Database: $dbh->errstr\n";
-my $sth = $dbh->prepare("SELECT id,pagename FROM page WHERE pagename = ?");
+$wikidbh or die "Unable to connect to wiki Database: $wikidbh->errstr\n";
+my $wikisth = $wikidbh->prepare("SELECT id,pagename FROM page WHERE pagename = ?");
 
-$sth->execute($wikiquery) or die "Unable to execute query: $dbh->errstr\n";
-my $count = $sth->rows;
+$wikisth->execute($wikiquery) or die "Unable to execute query: $wikidbh->errstr\n";
+my $count = $wikisth->rows;
 if ($count==1) {
-$row = $sth->fetchrow_arrayref;
+$row = $wikisth->fetchrow_arrayref;
 $unique="YES";
 $uniqueid=$row->[0];
-$sth->finish;
+$wikisth->finish;
 }
 print "Unique =".$unique." id=".$uniqueid." count=".$count;
-$sth = $dbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
-$sth->execute($wikiquery) or die "Unable to execute query: $dbh->errstr\n";
-$count = $sth->rows;
+$wikisth = $wikidbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
+$wikisth->execute($wikiquery) or die "Unable to execute query: $wikidbh->errstr\n";
+$count = $wikisth->rows;
 
 
 if ($count == 1) {
-        $row = $sth->fetchrow_arrayref;
+        $row = $wikisth->fetchrow_arrayref;
         $id = $row->[0];
 } elsif ($count > 1) {
         my $n=0;
         $counter=$count;
-        while($n++<10 && $counter-- && ($row = $sth->fetchrow_arrayref)) {
+        while($n++<10 && $counter-- && ($row = $wikisth->fetchrow_arrayref)) {
         $text.=$row->[1].", ";
 }
 if($counter > 0) {
@@ -127,25 +127,25 @@ if($counter > 0) {
         substr($text,-2)="";
 }
 }
-$sth->finish;
+$wikisth->finish;
 if ($count == 0) {
         $wikiquery=~ s/ /%20/g;
         $wikianswer="Couldn't find it in the Wiki\nMaybe you should add it at http://wiki.lemonia.org/index.php?pagename=".$wikiquery ;
 } elsif ($count == 1) {
-        $sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
-        $sth->execute($id) or die "Unable to execute query: $dbh->errstr\n";
-        $row = $sth->fetchrow_arrayref;
+        $wikisth = $wikidbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+        $wikisth->execute($id) or die "Unable to execute query: $wikidbh->errstr\n";
+        $row = $wikisth->fetchrow_arrayref;
         if ($unique eq "NO") {
         $wikianswer=$row->[0];
 }
-        $sth->finish;
+        $wikisth->finish;
 } elsif ($count > 1) {
         $wikianswer=$count." hits : ".$text;
 }
 if ($unique eq "YES") {
-        $sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
-        $sth->execute($uniqueid) or die "Unable to execute query: $dbh->errstr\n";
-        $row = $sth->fetchrow_arrayref;
+        $wikisth = $wikidbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+        $wikisth->execute($uniqueid) or die "Unable to execute query: $wikidbh->errstr\n";
+        $row = $wikisth->fetchrow_arrayref;
         $wikiquery=~ s/ /%20/g;
 
         $wikianswer=$row->[0];
@@ -156,9 +156,9 @@ if ($unique eq "YES") {
         #$wikianswer=~s/\n\\s+\n/\n/g ; #Zap whitespace
         #$wikianswer=~s/\n*/\n/g ; #Zap more whitespace
 
-        $sth->finish;
+        $wikisth->finish;
 }
-        $dbh->disconnect;
+        $wikidbh->disconnect;
 
         return $wikianswer;
 }
