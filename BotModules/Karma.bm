@@ -52,7 +52,7 @@ sub Told {
 sub Heard {
     my $self = shift;
     my ($event, $message) = @_;
-    $self->debug("In module Karma, sub Heard, got '$message'");
+
     if ($message =~ /^(\S*[^-+\s])\+\+$/os) {
         $self->ChangeKarma($event, $1, 1);
     } elsif ($message =~ /^(\S*[^-+\s])\-\-$/os) {
