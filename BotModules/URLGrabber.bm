@@ -1,0 +1,155 @@
+package BotModules::URLGrabber;
+use vars qw(@ISA);
+use DBI;
+@ISA = qw(BotModules);
+1;
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    return {
+        '' => 'URL Logging module. Logs any (appropriately commented) url (i.e. "http://blah.com #example page")',
+        'destroy link <ID>' => 'Deletes link ID from the URL database.',
+        'boost link <ID>' => 'Boost the score for link ID by one.',
+       'poor link <ID>' => 'Reduce the score for link ID by one.', 
+    };
+}
+
+sub Heard {
+    my $self = shift;
+    my ($event, $message) = @_;
+    my $chan="privmsg";
+    my $nick = $event->{'from'};
+    if ($event->{'channel'} ne '') {
+        $chan = $event->{'channel'};
+    }
+
+    my $url = find_url($message);
+    if ( $url and (index($message, ' #') > index($message,$url))) {
+         log_url($nick,$chan,$url,$message,'public');
+    }
+
+    return $self->SUPER::Heard(@_);
+    return 0; 
+}
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    my $chan="privmsg";
+    my $nick = $event->{'from'};
+    if ($event->{'channel'} ne '') {
+        $chan = $event->{'channel'};
+    }
+
+    my $url = find_url($message);
+    if ( $url and (index($message, ' #') > index($message,$url))) {
+         log_url($nick,$chan,$url,$message,'public');
+    }
+
+    if ($message =~ /^destroy link (\d+)$/osi) {
+        $self->say($event, 'Trying to delete link id '.$1." from the database");
+	destroylink($1);
+    } elsif ($message =~ /^boost link (\d+)$/osi) {
+	$self->say($event, 'Attempting to boost the score of link id '.$1);
+	boostlink($1);
+    } elsif ($message =~ /^poor link (\d+)$/osi) {
+        $self->say($event, 'Attempting to reduce the score of link id '.$1);
+        minuslink($1);
+    } else {
+        return $self->SUPER::Heard(@_);
+    }
+    return 0;
+}
+
+sub find_url {
+
+    my $message = shift;
+
+    my $url;
+
+    return undef unless $message;
+
+    if ( $message =~ m%((http://|https://|ftp://|www\.|ftp\.)\S+)%i ) {
+        $url = $1;
+    }
+
+    return undef unless $url;
+
+    if ($url =~ m%^www\.%) {
+        $url = "http://$url";
+    } elsif ($url =~ m%^ftp\.%) {
+        $url = "ftp://$url";
+    }
+
+    if (defined($url)) {
+        return $url;
+    } else {
+        return undef;
+    }
+
+}
+
+sub destroylink {
+    my $dbh = DBI->connect("DBI:mysql:funkbot:172.16.1.254","funkbot",undef);
+    $dbh or die "Unable to connect to funkbot Database: $dbh->errstr\n";
+    my ($id) = @_;
+    my $sth = $dbh->prepare("DELETE FROM urls WHERE id = ?");
+    $sth->execute($id) or die "Unable to execute query: $dbh->errstr\n";
+    $sth->finish;
+    $dbh->disconnect;
+    return "OK";
+}
+
+sub boostlink {
+    my $dbh = DBI->connect("DBI:mysql:funkbot:172.16.1.254","funkbot",undef);
+    $dbh or die "Unable to connect to funkbot Database: $dbh->errstr\n";
+    my ($id) = @_;
+    my $sth = $dbh->prepare("UPDATE urls SET score=score+1 WHERE id=?");
+    $sth->execute($id) or die "Unable to execute query: $dbh->errstr\n";
+    $sth->finish;
+    $dbh->disconnect;
+    return "OK";
+}
+
+sub minuslink {
+    my $dbh = DBI->connect("DBI:mysql:funkbot:172.16.1.254","funkbot",undef);
+    $dbh or die "Unable to connect to funkbot Database: $dbh->errstr\n";
+    my ($id) = @_;
+    my $sth = $dbh->prepare("UPDATE urls SET score=score-1 WHERE id=?");
+    $sth->execute($id) or die "Unable to execute query: $dbh->errstr\n";
+    $sth->finish;
+    $dbh->disconnect;
+    return "OK";
+}
+
+sub log_url {
+
+    my $dbh = DBI->connect("DBI:mysql:funkbot:172.16.1.254","funkbot",undef);
+    $dbh or die "Unable to connect to funkbot Database: $dbh->errstr\n";
+    my ($nick,$where,$url,$msg,$context) = @_;
+    my $duplicate="no";
+    $url =~ s%'%\'%;
+    $msg =~ s%'%\'%;
+# ' grr. syntax highlighting fix
+
+    my $sth = $dbh->prepare("SELECT url FROM urls WHERE url = ?");
+    $sth->execute($url) or die "Unable to execute query: $dbh->errstr\n";
+    my $count = $sth->rows;
+    if ($count==1) {
+    my $row = $sth->fetchrow_arrayref;
+    $duplicate="yes";
+    }
+    $sth->finish;
+
+    if ($duplicate eq "no") {
+    $sth = $dbh->prepare("INSERT INTO urls (url,who,location,message,context,date,score) VALUES (?,?,?,?,?,now(),0)");
+    $sth->execute($url,$nick,$where,$msg,$context) or die "Unable to execute query: $dbh->errstr\n";
+    $sth->finish;
+    my $id = $dbh->{mysql_insertid};
+
+    }
+    $dbh->disconnect;
+
+}
+
