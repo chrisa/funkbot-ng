@@ -18,6 +18,10 @@ sub RegisterConfig {
 			     ['baseUrl',       1, 1, ''],
 			     ['searchUrl',     1, 1, ''],
 			     ['linesToJibber', 1, 1, 5 ],
+			     ['wikiLoc',       1, 1, ''],
+			     ['wikiRealm',     1, 1, ''],
+			     ['wikiUser',      1, 1, ''],
+			     ['wikiPass',      1, 1, ''],
 			    );
 }
 
@@ -48,15 +52,14 @@ sub wiki_do {
     my ($event, $searchterm) = @_;
 
     $self->debug("firing LWP get for $self->{searchUrl}$searchterm");
-      my $ua = LWP::UserAgent->new(env_proxy => 1,
-                                   keep_alive => 1,
-                                   timeout => 30,
-                                  );
-      $ua->credentials($self->{wikiLoc},$self->{wikiRealm},$self->{wikiUser},$self->{wikiPass});
-      my $request = HTTP::Request->new('GET', $self->{searchUrl} . $searchterm);
-      my $response = $ua->request($request);
-
-     my $result = $response->content;
+    my $ua = LWP::UserAgent->new(env_proxy => 1,
+				 keep_alive => 1,
+				 timeout => 30,
+				);
+    $ua->credentials($self->{wikiLoc},$self->{wikiRealm},$self->{wikiUser},$self->{wikiPass});
+    my $request = HTTP::Request->new('GET', $self->{searchUrl} . $searchterm);
+    my $response = $ua->request($request);
+    my $result = $response->content;
 
     if (!defined $result) {
 	return "$event->{'from'}: something about querying the wiki is broken (LWP get failed)";
