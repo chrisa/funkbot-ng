@@ -4,6 +4,7 @@
 ################################
 
 package BotModules::InfobotDBI;
+use strict;
 use DBI;
 use vars qw(@ISA);
 @ISA = qw(BotModules BotModules::Infobot);
@@ -29,6 +30,18 @@ sub unload {
     $dbh->disconnect;
     $self->SUPER::unload(@_);
 }
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($message =~ /^\s*dbconnect[?\s]*$/osi && !defined $dbh) {
+        $dbh = DBI->connect($self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts});
+    } else {
+        return $self->SUPER::Told(@_);
+    }
+    return 0; # we've dealt with it, no need to do anything else.
+}
+
  
 sub SetFactoid {
     my $self = shift;
@@ -114,7 +127,7 @@ sub SetFactoid {
                     }
                 } elsif ($typeE eq 'DUNNO') {
                     my $who = defined($targetE) ? $targetE : $eventE->{'from'};
-		    my $fact = _getObjects($database, $subject);
+                    my $fact = _getObjects($database, $subject);
                     $self->directSay($eventE, ":INFOBOT:REPLY <$who> $subject =$database=> $fact");
                     $entry->[1] = 'OLD';
                 }
@@ -134,12 +147,12 @@ sub Literal {
     my $are = $self->CanonicalizeFactoid('are', $subject);
     if (defined($is) or defined($are)) {
         local $" = '\' or \'';
-        if (_subjectExists($database, $is)) {
-            my @what = _getObjects($database, $is);
+        if (_subjectExists('is', $is)) {
+            my @what = _getObjects('are', $is);
 	    $self->targettedSay($event, "$is is ".(join ' or ', @what).".", 1);
         }
-        if (_subjectExists($database, $are)) {
-	    my @what = _getObjects($database, $are);
+        if (_subjectExists('are', $are)) {
+	    my @what = _getObjects('are', $are);
 	    $self->targettedSay($event, "$are are ".(join ' or ', @what).".", 1);
 	}
     } else {
@@ -220,7 +233,7 @@ sub CanonicalizeFactoid {
         while(my $subject = $sth->fetchrow_array) {
             push @subjects, $subject;
         }
-        if (scalar $subjects) {
+        if (scalar @subjects) {
             return $subjects[0];
         }
     }
