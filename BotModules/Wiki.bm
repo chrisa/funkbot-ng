@@ -4,7 +4,7 @@
 # of output, or if more than one match, a list of matches.
 
 package BotModules::Wiki;
-use LWP::Simple;
+use LWP::UserAgent;
 use vars qw(@ISA);
 @ISA = qw(BotModules);
 1;
@@ -35,7 +35,7 @@ sub Help {
 sub Told {
     my $self = shift;
     my ($event, $message) = @_;
-    if ($message =~ /^\s*(?:wiki)\s+(.*?)\s*$/osi) {
+    if ($message =~ /^\s*wiki\s+(.*?)\s*$/osi) {
         $self->Wiki($event, $1);
     } else {
         return $self->SUPER::Told(@_);
@@ -47,7 +47,17 @@ sub wiki_do {
     my $self = shift;
     my ($event, $searchterm) = @_;
 
-    my $result = get($self->{searchUrl} . $searchterm);
+    $self->debug("firing LWP get for $self->{searchUrl}$searchterm");
+      my $ua = LWP::UserAgent->new(env_proxy => 1,
+                                   keep_alive => 1,
+                                   timeout => 30,
+                                  );
+      $ua->credentials($self->{wikiLoc},$self->{wikiRealm},$self->{wikiUser},$self->{wikiPass});
+      my $request = HTTP::Request->new('GET', $self->{searchUrl} . $searchterm);
+      my $response = $ua->request($request);
+
+     my $result = $response->content;
+
     if (!defined $result) {
 	return "$event->{'from'}: something about querying the wiki is broken (LWP get failed)";
     }
