@@ -1038,7 +1038,7 @@ sub debug {
             if (open(LOG, ">>$LOGFILEPREFIX.$$.log")) { 
                 print LOG &logdate() . " $line\n";
                 close(LOG);
-                print "\n";
+                #print "\n";
             } else {
                 print " [not logged, $!]\n";
             }
