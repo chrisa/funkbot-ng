@@ -104,10 +104,10 @@ $self->debug("updating $nick at $time with $text");
 
     } else {
 
-	$sth = $dbh->prepare("INSERT INTO seen (nick, seentime, seentext) VALUES ?, ?, ?");
-	$sth->bind_param(1, $time);
-	$sth->bind_param(2, $text);
-	$sth->bind_param(3, $nick);
+	$sth = $dbh->prepare("INSERT INTO seen (nick, seentime, seentext) VALUES (?, ?, ?)");
+	$sth->bind_param(1, $nick);
+	$sth->bind_param(2, $time);
+	$sth->bind_param(3, $text);
 	$sth->execute;
 
     }
