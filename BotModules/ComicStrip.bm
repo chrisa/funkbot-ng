@@ -1,0 +1,173 @@
+# -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
+################################
+# ComicStrip Module            #
+################################
+
+package BotModules::ComicStrip;
+use vars qw(@ISA);
+use GD;
+@ISA = qw(BotModules);
+1;
+
+our @lines;
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+			     # [ name, save?, settable? ]
+			     ['outputPath',   1, 1, ''], 
+			     ['datePath',     1, 1, ''], 
+			     ['triggerWords', 1, 1, []],
+    );
+}
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    return {
+            '' => 'Generates comic strips.',
+	   };
+}
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    my $from = $event->{'from'};
+
+    push @lines, {
+		  nick => $from,
+		  line => $message,
+		 };
+
+    $self->tryTrigger($message);
+    return $self->SUPER::Told(@_);
+}
+
+sub Heard {
+    my $self = shift;
+    my ($event, $message) = @_;
+    my $from = $event->{'from'};
+
+    push @lines, {
+		  nick => $from,
+		  line => $message,
+		 };
+
+    $self->tryTrigger($message);
+    return $self->SUPER::Told(@_);
+}
+
+sub tryTrigger {
+    my ($self, $message) = @_;
+
+    for my $trig (@{ $self->{triggerWords} }) {
+	if ($message =~ /^$trig/) {
+	    $self->doComic;
+	    @lines = ();
+	}
+    }
+}
+
+sub doComic {
+    my $self = shift;
+    
+    # pick a random comic backdrop
+    unless (opendir DATA, $self->{dataPath}) {
+	$self->debug("couldn't open path $self->{dataPath}: $!");
+	return undef;
+    }
+    my @backdrops;
+    while (my $backdrop = readdir DATA) {
+	next if $backdrop =~ /^\.+$/;
+	push @backdrops, $backdrop;
+    }
+    closedir DATA;
+    my $i = int(rand(scalar @backdrops));
+    my $bd = $backdrops[$i];
+
+    # load data file
+    my $data_file = $self->{dataPath} . '/' . $bd . 'data';
+    unless (open DATAFILE, $data_file) {
+	$self->debug("couldn't open data file $data_file: $!");
+	return undef;
+    }
+    my @slots;
+    my $datestamp_line = <DATAFILE>;
+    my ($dsx, $dsy) = $datestamp_line =~ /(\d+) (\d+)/;
+    while (my $slotline = <DATAFILE>) {
+	next unless $slotline =~ /(\d+) (\d+) (\d+) (\d+) (\d+)/;
+	push @slots, {
+		      max => $1,
+		      x1  => $2,
+		      y1  => $3,
+		      x2  => $4,
+		      y2  => $5,
+		     };
+    }
+
+    # get the last n things from @lines, 
+    # check they're all short enough
+    my $n = ($#lines - scalar @slots);
+    for my $slot (@slots) {
+	if ($lines[$n] > $slot->{max}) {
+	    # give up 
+	    return undef;
+	}
+	$n++;
+    }
+
+    # spin up GD, load image
+    my $bd_file = $self->{dataPath} . '/' . $bd . 'backdrop.png';
+    my $img = GD::Image->new($bd_file);
+    my $black = $im->colorAllocate(0x00,0x00,0x00);
+    unless (defined $img) {
+	$self->debug("couldn't create GD::Image from $bd_file");
+	return undef;
+    }
+
+    # datestamp
+    #   add gd text thing
+    
+    # add the lines
+    my $n = ($#lines - scalar @slots);
+    for my $slot (@slots) {
+	$im->string(
+		    gdSmallFont, 
+		    ($map_x + 8), 
+		    ($map_y - 6), 
+		    $line[$n],
+		    $black,
+		   );
+	$n++;
+    }
+    
+    # write out to temp file
+    unless (open IMAGE, '>' . $self->{outputPath} . '/temp_img') {
+	$self->debug("couldn't open temp file $self->{outputPath}/temp_img for writing: $!");
+	return undef;
+    }
+    print IMAGE $im->png;
+    close IMAGE;
+    
+    # move to archive file
+    my $fn = $self->{outputPath} . '/cartoon-' . (time) . '.png';
+    unless (rename $self->{outputPath} . '/temp_img', $fn) {
+	$self->debug("couldn't move file to $fn: $!");
+	return undef;
+    }
+    
+    # link from current
+    unless (unlink $self->{outputPath} . '/cartoon.png') {
+	$self->debug("couldn't unlink old cartoon.png: $!");
+	return undef;
+    }
+    unless (link $fn, $self->{outputPath} . '/cartoon.png') {
+	$self->debug("couldn't link to new cartoon.png: $!");
+	return undef;
+    }
+
+    # done!
+    return 1;
+}
