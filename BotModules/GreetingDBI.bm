@@ -40,7 +40,7 @@ sub Told {
     $self->{'_lastSpoken'}->{$event->{'user'}} = $now;
     if ($event->{'channel'} ne '') {
         my $channel = $event->{'channel'};
-	$self->updateSeen(lc $event->{'from'}, $now, "saying '$message' to me in $channel.");
+	$self->updateSeen(lc $event->{'from'}, $now, "'$message' to me in $channel.");
     }
 
     $self->SUPER::Told(@_);
@@ -51,7 +51,7 @@ sub Heard {
     my ($event, $message) = @_;
     if ($event->{'channel'} ne '') {
         my $channel = $event->{'channel'};
-	$self->updateSeen(lc $event->{'from'}, time(), "saying '$message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "'$message' in $channel.");
     }
     $self->SUPER::Heard(@_);
 }
@@ -62,7 +62,7 @@ sub Felt {
     if ($event->{'channel'} ne '') {
         my $nick = $event->{'from'};
         my $channel = $event->{'channel'};
-	$self->updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "'$message' in $channel.");
     }
     $self->SUPER::Felt(@_);
 }
@@ -73,7 +73,7 @@ sub Saw {
     if ($event->{'channel'} ne '') {
         my $nick = $event->{'from'};
         my $channel = $event->{'channel'};
-	$self->updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "'$message' in $channel.");
     }
     $self->SUPER::Saw(@_);
 }
@@ -87,16 +87,16 @@ sub SpottedNickChange {
 
 sub updateSeen {
     my ($self, $nick, $time, $text) = @_;
-
+$self->debug("updating $nick at $time with $text");
     my $dbh = $self->getDbh();
-    my $sth = $dbh->prepare("SELECT COUNT(*) FROM seen WHERE NICK = ?");
+    my $sth = $dbh->prepare("SELECT COUNT(*) FROM seen WHERE nick = ?");
     $sth->bind_param(1, $nick);
     $sth->execute;
     my ($count) = $sth->fetchrow_array;
 
     if ($count) {
 
-	$sth = $dbh->prepare("UPDATE seen SET time = ?, seentext = ? WHERE nick = ?");
+	$sth = $dbh->prepare("UPDATE seen SET seentime = ?, seentext = ? WHERE nick = ?");
 	$sth->bind_param(1, $time);
 	$sth->bind_param(2, $text);
 	$sth->bind_param(3, $nick);
@@ -104,7 +104,7 @@ sub updateSeen {
 
     } else {
 
-	$sth = $dbh->prepare("INSERT INTO seen (nick, time, seentext) VALUES ?, ?, ?");
+	$sth = $dbh->prepare("INSERT INTO seen (nick, seentime, seentext) VALUES ?, ?, ?");
 	$sth->bind_param(1, $time);
 	$sth->bind_param(2, $text);
 	$sth->bind_param(3, $nick);
@@ -124,12 +124,14 @@ sub DoSeen {
         $self->say($event, $self->{'seenOverrides'}->{$who});
     } else {
 	my $dbh = $self->getDbh();
-	my $sth = $dbh->prepare("SELECT time FROM see WHERE nick = ?");
+	my $sth = $dbh->prepare("SELECT seentime FROM seen WHERE nick = ?");
 	$sth->bind_param(1, lc $who);
 	$sth->execute;
+$self->debug("looking for $who");
 	my ($seconds) = $sth->fetchrow_array;
 
         if (defined($seconds)) {
+$self->debug("got $seconds");
             my $seconds = time() - $seconds;
             my $time = '';
             if ($seconds > 90) {
@@ -213,7 +215,7 @@ sub DoSeen {
 	    $sth->bind_param(1, lc $who);
 	    $sth->execute;
 	    my ($what) = $sth->fetchrow_array;
-            $self->say($event, "$who was last seen $time, $what");
+            $self->say($event, "$who was last seen $time, saying '$what'");
         } else {
             my $n = '';
             if ($who =~ /^[aeiou]/o) {
