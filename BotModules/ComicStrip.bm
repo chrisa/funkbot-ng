@@ -6,6 +6,7 @@
 package BotModules::ComicStrip;
 use vars qw(@ISA);
 use GD;
+use GD::Text;
 use GD::Text::Wrap;
 
 @ISA = qw(BotModules);
@@ -137,7 +138,8 @@ sub doComic {
 	return undef;
     }
     my $black = $im->colorAllocate(0x00,0x00,0x00);
-
+    GD::Text->font_path("/usr/local/share/fonts/truetype");
+    
     # datestamp
     #   add gd text thing
     
@@ -152,14 +154,15 @@ sub doComic {
 					   text        => $text,
 					 );
 
+	$wrapbox->font_path("/usr/local/share/fonts/truetype");
 	if (length $text < 6) {
-	    $wrapbox->set_font(gdGiantFont);
+	    $wrapbox->set_font('arial',24);
 	} elsif (length $text < 16) {
-	    $wrapbox->set_font(gdLargeFont);
+	    $wrapbox->set_font('times',16);
 	} elsif (length $text < 30) {
-	    $wrapbox->set_font(gdMediumBoldFont);
+	    $wrapbox->set_font('arial',14);
 	} else {
-	    $wrapbox->set_font(gdSmallFont);
+	    $wrapbox->set_font('verdana',9);
 	}
 	$wrapbox->set(align => 'left', width => $slot->{max});
 	$wrapbox->draw($slot->{x1}, $slot->{y1});
