@@ -89,8 +89,6 @@ sub doComic {
     my $i = int(rand(scalar @backdrops));
     my $bd = $backdrops[$i];
 
-    $self->debug("picked backdrop $bd");
-
     # load data file
     my $data_file = $self->{dataPath} . '/' . $bd . '/data';
     unless (open DATAFILE, $data_file) {
@@ -111,24 +109,17 @@ sub doComic {
 		     };
     }
 
-    $self->debug("read datafile $data_file: " . (scalar @slots));
-    
-    use Data::Dumper;
-    $self->debug( Dumper \@lines );
-
     # get the last n things from @lines, 
     # check they're all short enough
     my $n = ($#lines - scalar @slots);    
     for my $slot (@slots) {
 	my $l = length $lines[$n]->{line}; 
 	if ($l > $slot->{max}) {
-	    # give up 
+	    $self->debug("current lines too long for a comic, bailing out");
 	    return undef;
 	}
 	$n++;
     }
-
-    $self->debug("got enough lines");
 
     # spin up GD, load image
     my $bd_file = $self->{dataPath} . '/' . $bd . '/backdrop.png';
