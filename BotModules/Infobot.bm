@@ -416,7 +416,7 @@ sub GetFactoid {
             $answer = @alternatives[$self->{'factoidPositions'}->{$database}->{$subject}];
             $self->{'factoidPositions'}->{$database}->{$subject}++;
         } else {
-            $answer = @alternatives[0];
+            $answer = $alternatives[0];
         }
         my $who = defined($target) ? $target : $event->{'from'};
         $answer =~ s/\$who/$who/go;
