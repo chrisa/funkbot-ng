@@ -1,7 +1,7 @@
 # -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
 # DNS Module
 # 
-# $Id: DNS.bm,v 1.1 2003-09-30 21:53:59 jon Exp $
+# $Id: DNS.bm,v 1.2 2003-09-30 21:57:26 jon Exp $
 
 # TODO: 
 #     Allow specification of record types
@@ -26,7 +26,22 @@ sub Told {
     my $self = shift;
     my ($event,$message) = @_;
 
-    # Firstly sanitize input, and check the request type. If it looks good, fork a DNS request, else return
+    # Firstly sanitize input. If it looks good, fire off a DNS request, else return
+
+    if ($message =~ /^\s*dns\s+([a-z0-9\-\.]+)\s*$/) {
+	$self->RunDNS($event,$1);
+    } else {
+	 return $self->SUPER::Told(@_);
+    }
+    return 0; # we've dealt with it, 
+}
+
+sub Heard {
+    
+        my $self = shift;
+    my ($event,$message) = @_;
+
+    # Firstly sanitize input. If it looks good, fire off a DNS request, else return
 
     if ($message =~ /^\s*dns\s+([a-z0-9\-\.]+)\s*$/) {
 	$self->RunDNS($event,$1);
@@ -42,6 +57,8 @@ sub RunDNS {
 
     my $data = lc($data);
     my $type;
+
+    # Work out what kind of request to do, and spawn a child to do the actual request
 
     if ($data =~ m/^([0-9])+\.([0-9]+)\.([0-9]+)\.([0-9]+)$/ ) {
 	$type = 'byaddr';
@@ -60,6 +77,8 @@ sub DNS_do {
 
     my $self = shift;
     my ($event,$data,$type) = @_;
+
+    # The actual DNS lookup(s) get done in here
 
     if ($type eq "byaddr") {
 	my $iaddr = inet_aton($data) || return "Invalid address '$data'";
@@ -84,8 +103,9 @@ sub DNS_do {
 sub ChildCompleted {
 
     my $self = shift;
-
     my ($event, $type, $output, @data) = @_;
+
+    # Handle output from DNS lookup children
 
     $self->debug("DNS Child completed: $type $output");
 
