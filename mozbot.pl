@@ -179,7 +179,7 @@ $cfgfile = $1; # untaint it -- we trust this, it comes from the admin.
 
 # - setup variables
 # note: owner is only used by the Mails module
-my ($server, $port, $localAddr, @nicks, @channels, %channelKeys, $owner,
+my ($server, $port, $password, $localAddr, @nicks, @channels, %channelKeys, $owner,
     @ignoredUsers, @ignoredTargets);
 my $nick = 0;
 my $sleepdelay = 60;
@@ -195,6 +195,7 @@ my @modulenames = ('General');
 &registerConfigVariables(
     [\$server, 'server'],
     [\$port, 'port'],
+    [\$password, 'password'],
     [\$localAddr, 'localAddr'],
     [\@nicks, 'nicks'],
     [\$nick, 'currentnick'], # pointer into @nicks
@@ -224,6 +225,7 @@ my @modulenames = ('General');
 $changed = &Configuration::Ensure([
     ['Connect to which server?', \$server],
     ['To which port should I connect?', \$port],
+    ['Password?', \$password],
     ['What channels should I join?', \@channels],
     ['What is the e-mail address of my owner?', \$owner],
     ['What is your SMTP host?', \$Mails::smtphost],
@@ -287,6 +289,7 @@ sub connect {
     until ($bot = $irc->newconn(
              Server => $server,
              Port => $port,
+             Password => $password,
              Nick => $nicks[$nick],
              Ircname => "[mozbot] $helpline",
              Username => $USERNAME,
