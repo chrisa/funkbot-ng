@@ -1,0 +1,98 @@
+# -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
+# DNS Module
+# 
+# $Id: DNS.bm,v 1.1 2003-09-30 21:53:59 jon Exp $
+
+# TODO: 
+#     Allow specification of record types
+#     proper tracing of DNS
+#     handle gethostbyname output more sanely
+
+package BotModules::DNS;
+use Socket;
+use vars qw(@ISA);
+@ISA = qw(BotModules);
+1;
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    return {
+	'' => 'A module for doing DNS lookups. Syntax \'dns hostname|ip\'',		
+    };
+}
+
+sub Told {
+    my $self = shift;
+    my ($event,$message) = @_;
+
+    # Firstly sanitize input, and check the request type. If it looks good, fork a DNS request, else return
+
+    if ($message =~ /^\s*dns\s+([a-z0-9\-\.]+)\s*$/) {
+	$self->RunDNS($event,$1);
+    } else {
+	 return $self->SUPER::Told(@_);
+    }
+    return 0; # we've dealt with it, 
+}
+
+sub RunDNS {
+    my $self = shift;
+    my ($event,$data) = @_;
+
+    my $data = lc($data);
+    my $type;
+
+    if ($data =~ m/^([0-9])+\.([0-9]+)\.([0-9]+)\.([0-9]+)$/ ) {
+	$type = 'byaddr';
+	$self->debug("DNS: Spawning $type lookup of $data");
+	$self->spawnChild($event, \&DNS_do, [$self,$event,$data,$type], 'dns', [])
+    } elsif ($data =~ /^[a-z0-9]+[a-z0-9\-\.]*$/) {
+	$type = 'byname';
+	$self->debug("DNS: Spawning $type lookup of $data");
+	$self->spawnChild($event, \&DNS_do, [$self,$event,$data,$type], 'dns', [])	
+    } else {
+	$self->say($event,"Cannot do DNS for '$data', input is garbage");
+    }
+}
+
+sub DNS_do {
+
+    my $self = shift;
+    my ($event,$data,$type) = @_;
+
+    if ($type eq "byaddr") {
+	my $iaddr = inet_aton($data) || return "Invalid address '$data'";
+	if (my $name  = gethostbyaddr($iaddr, AF_INET)) {
+	    return "$data is $name";
+	} else {
+	    return "unknown host $data";
+	}
+    } elsif ($type = "byname" ) {
+	if (my @list = gethostbyname($data)) {
+	    return "$data has address ".inet_ntoa(@list[4]);
+	} else {
+	    return "No address found for $data";
+	}
+    } else {
+	return "Unknown DNS lookup type '$type'";
+    }
+    
+}
+
+
+sub ChildCompleted {
+
+    my $self = shift;
+
+    my ($event, $type, $output, @data) = @_;
+
+    $self->debug("DNS Child completed: $type $output");
+
+    if ($type eq 'dns') {
+	$self->say($event,$output);
+    } else {
+        $self->SUPER::ChildCompleted($event, $type, $output, @data);
+    }
+}
+
