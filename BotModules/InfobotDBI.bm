@@ -199,11 +199,11 @@ sub GetFactoid {
                 $answer =~ s/^<reply>\s*//o;
             } else {
                 # pick a 'random' prefix
-                my $prefix = $self->{'prefixes'}->[time() % @{$self->{'prefixes'}}];
+                my $prefix = $self->{'prefixes'}->[time() % @{$self->{'prefixes'}}] . ' ';
                 if (lc($who) eq lc($subject)) {
-                    $answer = "${prefix} you are $answer";
+                    $answer = "${prefix}you are $answer";
                 } else {
-                    $answer = "$prefix $subject $type $answer";
+                    $answer = "$prefix$subject $type $answer";
                 }
                 if (defined($friend)) {
                     $answer = "$friend knew: $answer";
