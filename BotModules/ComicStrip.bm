@@ -6,6 +6,8 @@
 package BotModules::ComicStrip;
 use vars qw(@ISA);
 use GD;
+use GD::Text::Wrap;
+
 @ISA = qw(BotModules);
 our @lines;
 
@@ -115,12 +117,10 @@ sub doComic {
 
     # get the last n things from @lines, 
     # check they're all short enough
-    my $n = ($#lines - scalar @slots);
-
-    $self->debug("n: $n");
-
+    my $n = ($#lines - scalar @slots);    
     for my $slot (@slots) {
-	if (length $lines[$n] > $slot->{max}) {
+	my $l = length $lines[$n]->{line}; 
+	if ($l > $slot->{max}) {
 	    # give up 
 	    return undef;
 	}
@@ -144,13 +144,26 @@ sub doComic {
     # add the lines
     my $n = ($#lines - scalar @slots);
     for my $slot (@slots) {
-	$im->string(
-		    gdSmallFont, 
-		    $slot->{x1},
-		    $slot->{y1}, 
-		    $lines[$n]->{line},
-		    $black,
-		   );
+	
+	my $text = $lines[$n]->{line};
+	my $wrapbox = GD::Text::Wrap->new( $im,
+					   line_space  => 4,
+					   color       => $black,
+					   text        => $text,
+					 );
+
+	if (length $text < 6) {
+	    $wrapbox->set_font(gdGiantFont);
+	} elsif (length $text < 16) {
+	    $wrapbox->set_font(gdLargeFont);
+	} elsif (length $text < 30) {
+	    $wrapbox->set_font(gdMediumBoldFont);
+	} else {
+	    $wrapbox->set_font(gdSmallFont);
+	}
+	$wrapbox->set(align => 'left', width => $slot->{max});
+	$wrapbox->draw($slot->{x1}, $slot->{y1});
+	
 	$n++;
     }
     
