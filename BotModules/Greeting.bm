@@ -8,7 +8,6 @@ use vars qw(@ISA);
 @ISA = qw(BotModules);
 use AnyDBM_File;
 use Fcntl;
-1;
 
 # SpottedNickChange would be a nice one to do if you 
 # can solve the problem of working out which channel
@@ -466,3 +465,5 @@ sub unload {
     untie(%{$seen->{'times'}});
     untie(%{$seen->{'states'}});
 }
+
+1;
