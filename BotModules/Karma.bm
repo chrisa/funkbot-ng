@@ -25,10 +25,10 @@ sub Help {
     my $self = shift;
     my ($event) = @_;
     return {
-            '' => 'A karma tracker. If you have authenticated (using the \'auth\' command) then it will also keep track of your own setting of people\'s karma, as well as the total of everyone\'s settings. Use the \'rank\' command to find someone\'s karma rank.',
+            '' => 'A karma tracker. If you have authenticated (using the \'auth\' command) then it will also keep track of your own setting of people\'s karma, as well as the total of everyone\'s settings. Use the \'karma\' command to find someone\'s karma values and rank.',
             '++' => 'Increase someone\'s karma. Syntax: victim++',
             '--' => 'Decrease someone\'s karma. Syntax: victim--',
-            'rank' => 'Find someone\'s karma level. Omit the victim\'s name to get a complete listing of everyone\'s karma (long). Syntax: \'rank victim\' or just \'rank\'',
+            'karma' => 'Find someone\'s karma level. Omit the victim\'s name to get a complete listing of everyone\'s karma (long). Syntax: \'karma victim\' or just \'karma\'',
     };
 }
 
@@ -39,10 +39,9 @@ sub Told {
         $self->ChangeKarma($event, $1, 1);
     } elsif ($message =~ /^(\S+)\-\-$/os) {
         $self->ChangeKarma($event, $1, -1);
-    } elsif ($message =~ /^\s*(?:karma\s+)?ranks?[?\s]*$/os) {
+    } elsif ($message =~ /^\s*karma[?\s]*$/os) {
         $self->ReportKarmaRanks($event, $1);
-    } elsif ($message =~ /^\s*(\S+)\s+(?:karma\s+)?rank[?\s]*$/os or
-             $message =~ /^\s*(?:karma\s+)?rank\s+(\S+)[?\s]*$/os) {
+    } elsif ($message =~ /^\s*karma\s+(\S+?)[?\s]*$/os) {
         $self->ReportKarma($event, $1);
     } else {
         return $self->SUPER::Told(@_);
@@ -53,10 +52,13 @@ sub Told {
 sub Heard {
     my $self = shift;
     my ($event, $message) = @_;
+    $self->debug("In module Karma, sub Heard, got '$message'");
     if ($message =~ /^(\S*[^-+\s])\+\+$/os) {
         $self->ChangeKarma($event, $1, 1);
     } elsif ($message =~ /^(\S*[^-+\s])\-\-$/os) {
         $self->ChangeKarma($event, $1, -1);
+    } elsif ($message =~ /^\s*karma\s+(\S+?)[?\s]*$/s) {
+        $self->ReportKarma($event, $1);
     } else {
         return $self->SUPER::Told(@_);
     }
