@@ -1,0 +1,98 @@
+# Wiki module for mozbot. 
+#
+# if Told 'wiki $foo', will wiki for 'foo' and return either n lines
+# of output, or if more than one match, a list of matches.
+
+package BotModules::Wiki;
+use LWP::Simple;
+use vars qw(@ISA);
+@ISA = qw(BotModules);
+1;
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+			   # [ name, save?, settable? ]
+			     ['baseUrl',       1, 1, ''],
+			     ['searchUrl',     1, 1, ''],
+			     ['linesToJibber', 1, 1, 5 ],
+			    );
+}
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    local $";
+    $" = '|';
+    return {
+        '' => 'Goes and looks stuff up in a Wiki',
+        'wiki' => "do a wiki search for something"
+    };
+}
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($message =~ /^\s*(?:wiki)\s+(.*?)\s*$/osi) {
+        $self->Wiki($event, $1);
+    } else {
+        return $self->SUPER::Told(@_);
+    }
+    return 0; # dealt with it...
+}
+
+sub wiki_do {
+    my $self = shift;
+    my ($event, $searchterm) = @_;
+
+    my $result = get($self->{searchUrl} . $searchterm);
+    if (!defined $result) {
+	return "$event->{'from'}: something about querying the wiki is broken (LWP get failed)";
+    }
+
+    # parse wiki page
+    my @matches;
+    my $content;
+
+    my $num_matches = scalar @matches;
+    if ($num_matches > 1) {
+        return "$event->{'from'}: ".($num_matches)." matches: " . (join ', ', @matches);
+    } elsif ($num_matches == 1) {
+	my @content = split /\n/, $content;
+	return
+	  "$event->{'from'}: 1 match:\n" . 
+	  join "\n", @content[0 .. ($self->{linesToJibber} - 1)] . 
+	  "(more information at ".$self->{baseUrl}."$searchterm)";
+    } elsif ($num_matches == 0) {
+	return "$event->{'from'}: nothing matching $searchterm in the Wiki.";
+    } else {
+	return "$event->{'from'}: something *really* *weird* is broken with querying the Wiki (-ve no. matches).";
+    }
+}
+
+# ChildCompleted - Called when a child process has quit
+sub ChildCompleted {
+    my $self = shift;
+    my ($event, $type, $output, @data) = @_;
+    if ($type eq 'wiki') {
+        $self->say($event, $output);
+    } else {
+        $self->SUPER::ChildCompleted($event, $type, $output, @data);
+    }
+}
+
+sub Wiki {
+    my $self = shift;
+    my ($event, $wiki) = @_;
+
+    # check things are ok.
+    if (!defined $wiki) {
+        $self->say($event, "$event->{'from'}: You can't search the Wiki for nothing.");
+        return;
+    }
+
+    $self->spawnChild($event, \&wiki_do, [$self, $event, $wiki], 'wiki', []);
+}
+
