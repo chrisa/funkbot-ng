@@ -4,7 +4,7 @@
 # of output, or if more than one match, a list of matches.
 
 package BotModules::Wiki;
-use LWP::UserAgent;
+use DBI;
 use vars qw(@ISA);
 @ISA = qw(BotModules);
 1;
@@ -50,39 +50,10 @@ sub Told {
 sub wiki_do {
     my $self = shift;
     my ($event, $searchterm) = @_;
+    $self->debug("firing dowiki for $self->{searchUrl}$searchterm");
+    my $reply = &doWiki($searchterm);
 
-    $self->debug("firing LWP get for $self->{searchUrl}$searchterm");
-    my $ua = LWP::UserAgent->new(env_proxy => 1,
-				 keep_alive => 1,
-				 timeout => 30,
-				);
-    $ua->credentials($self->{wikiLoc},$self->{wikiRealm},$self->{wikiUser},$self->{wikiPass});
-    my $request = HTTP::Request->new('GET', $self->{searchUrl} . $searchterm);
-    my $response = $ua->request($request);
-    my $result = $response->content;
-
-    if (!defined $result) {
-	return "$event->{'from'}: something about querying the wiki is broken (LWP get failed)";
-    }
-
-    # parse wiki page
-    my @matches;
-    my $content;
-
-    my $num_matches = scalar @matches;
-    if ($num_matches > 1) {
-        return "$event->{'from'}: ".($num_matches)." matches: " . (join ', ', @matches);
-    } elsif ($num_matches == 1) {
-	my @content = split /\n/, $content;
-	return
-	  "$event->{'from'}: 1 match:\n" . 
-	  join "\n", @content[0 .. ($self->{linesToJibber} - 1)] . 
-	  "(more information at ".$self->{baseUrl}."$searchterm)";
-    } elsif ($num_matches == 0) {
-	return "$event->{'from'}: nothing matching $searchterm in the Wiki.";
-    } else {
-	return "$event->{'from'}: something *really* *weird* is broken with querying the Wiki (-ve no. matches).";
-    }
+    return "$event->{'from'}:".$reply;
 }
 
 # ChildCompleted - Called when a child process has quit
