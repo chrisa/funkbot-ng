@@ -1237,7 +1237,7 @@ sub checkPassword {
 # And now, for my next trick, the base module (duh).
 
 package BotModules;
-use FreezeThaw;
+use FreezeThaw qw/ freeze /;
 
 # cache of database handles
 my $handles;
