@@ -4,7 +4,6 @@
 # of output, or if more than one match, a list of matches.
 
 package BotModules::Wiki;
-use DBI;
 use vars qw(@ISA);
 @ISA = qw(BotModules);
 1;
@@ -15,13 +14,13 @@ sub RegisterConfig {
     $self->SUPER::RegisterConfig(@_);
     $self->registerVariables(
 			   # [ name, save?, settable? ]
-			     ['baseUrl',       1, 1, ''],
-			     ['searchUrl',     1, 1, ''],
 			     ['linesToJibber', 1, 1, 5 ],
-			     ['wikiLoc',       1, 1, ''],
-			     ['wikiRealm',     1, 1, ''],
-			     ['wikiUser',      1, 1, ''],
-			     ['wikiPass',      1, 1, ''],
+			     ['matchesToList', 1, 1, 5 ],
+			     ['dbiDsn',        1, 1, ''],
+			     ['dbiHost',       1, 1, ''],
+			     ['dbiUser',       1, 1, ''],
+			     ['dbiPass',       1, 1, ''],
+			     ['dbiOpts',       1, 1, {}],
 			    );
 }
 
@@ -47,37 +46,68 @@ sub Told {
     return 0; # dealt with it...
 }
 
-sub wiki_do {
-    my $self = shift;
-    my ($event, $searchterm) = @_;
-    $self->debug("firing dowiki for $self->{searchUrl}$searchterm");
-    my $reply = &doWiki($searchterm);
-
-    return "$event->{'from'}:".$reply;
-}
-
-# ChildCompleted - Called when a child process has quit
-sub ChildCompleted {
-    my $self = shift;
-    my ($event, $type, $output, @data) = @_;
-    if ($type eq 'wiki') {
-        $self->say($event, $output);
-    } else {
-        $self->SUPER::ChildCompleted($event, $type, $output, @data);
-    }
-}
-
 sub Wiki {
     my $self = shift;
-    my ($event, $wiki) = @_;
+    my ($event, $wikiquery) = @_;
 
     # check things are ok.
-    if (!defined $wiki) {
+    if (!defined $wikiquery) {
         $self->say($event, "$event->{'from'}: You can't search the Wiki for nothing.");
         return;
     }
+    $wikiquery=~s/[ \?]*$//g ; #Zap trailing space(s) or question mark(s)
 
-    $self->spawnChild($event, \&wiki_do, [$self, $event, $wiki], 'wiki', []);
+    # try for an exact match
+    
+    my $dbh = $self->getDbh();
+    $sth = $dbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
+    $sth->bind_param(1, $wikiquery);
+    $sth->execute();
+
+    if ($sth->rows == 1) {
+	
+	my ($id, $pagename) = $sth->fetchrow_array;
+
+	$sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+	$sth->bind_param(1, $id);
+	$sth->execute();
+	my ($content) = $sth->fetchrow_array;
+	
+	$wikiquery=~ s/ /%20/g; # replace with proper URL escaping
+	$wikianswer = join "\n", @{ [ grep { defined $_ } split /\n/, $wikianswer ] }[ 0 .. $self->{linesToJibber} ];
+	
+	if ($pagename eq $wikiquery) {
+	    $wikianswer = "Exact match: $wikiquery\n$wikianswer\n";
+	} else {
+	    $wikianswer = "One hit: $pagename\n$wikianswer\n";
+	}
+
+	$wikianswer .= "More information available at http://wiki.lemonia.org/index.php?pagename=$pagename";
+	
+	$self->say($event, $wikianswer);
+	return;
+
+    } elsif ($sth->rows > 1) {
+
+	my @matches;
+	while ($row = $sth->fetchrow_arrayref) {
+	    push @matches, $row;
+	}
+	
+	my $text = join ',', grep { defined $_ } @matches[ 0 .. $self->{matchesToList} ];
+	
+	if(scalar @matches > $self->{matchesToList}) {
+	    $text .= " and " . (scalar @matches - $self->{matchesToList}) . " more";
+	}
+
+
+    } else { # nothing found
+
+        $wikiquery=~ s/ /%20/g; # replace with proper URL escaping
+        $wikianswer="Couldn't find it in the Wiki\nMaybe you should add it at http://wiki.lemonia.org/index.php?pagename=".$wikiquery ;
+	$self->say($event, $wikianswer);
+	return;
+    } 
 }
 
 sub doWiki {
@@ -91,75 +121,6 @@ my $counter;
 my $unique="NO";
 my $uniqueid;
 
-$wikiquery=~s/[ \?]*$//g ; #Zap trailing space(s) or question mark(s)
-
-my $wikidbh = DBI->connect("DBI:mysql:phpwiki:172.16.1.254","funkbot",undef);
-
-$wikidbh or die "Unable to connect to wiki Database: $wikidbh->errstr\n";
-my $wikisth = $wikidbh->prepare("SELECT id,pagename FROM page WHERE pagename = ?");
-
-$wikisth->execute($wikiquery) or die "Unable to execute query: $wikidbh->errstr\n";
-my $count = $wikisth->rows;
-if ($count==1) {
-$row = $wikisth->fetchrow_arrayref;
-$unique="YES";
-$uniqueid=$row->[0];
-$wikisth->finish;
-}
-print "Unique =".$unique." id=".$uniqueid." count=".$count;
-$wikisth = $wikidbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
-$wikisth->execute($wikiquery) or die "Unable to execute query: $wikidbh->errstr\n";
-$count = $wikisth->rows;
 
 
-if ($count == 1) {
-        $row = $wikisth->fetchrow_arrayref;
-        $id = $row->[0];
-} elsif ($count > 1) {
-        my $n=0;
-        $counter=$count;
-        while($n++<10 && $counter-- && ($row = $wikisth->fetchrow_arrayref)) {
-        $text.=$row->[1].", ";
-}
-if($counter > 0) {
-        $text.="and $counter more";
-} else {
-        substr($text,-2)="";
-}
-}
-$wikisth->finish;
-if ($count == 0) {
-        $wikiquery=~ s/ /%20/g;
-        $wikianswer="Couldn't find it in the Wiki\nMaybe you should add it at http://wiki.lemonia.org/index.php?pagename=".$wikiquery ;
-} elsif ($count == 1) {
-        $wikisth = $wikidbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
-        $wikisth->execute($id) or die "Unable to execute query: $wikidbh->errstr\n";
-        $row = $wikisth->fetchrow_arrayref;
-        if ($unique eq "NO") {
-        $wikianswer=$row->[0];
-}
-        $wikisth->finish;
-} elsif ($count > 1) {
-        $wikianswer=$count." hits : ".$text;
-}
-if ($unique eq "YES") {
-        $wikisth = $wikidbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
-        $wikisth->execute($uniqueid) or die "Unable to execute query: $wikidbh->errstr\n";
-        $row = $wikisth->fetchrow_arrayref;
-        $wikiquery=~ s/ /%20/g;
-
-        $wikianswer=$row->[0];
-        my @lines = split /\n/, $wikianswer;
-        my @no_blanks = grep { $_ ne '' } @lines;
-        $wikianswer = join "\n", @no_blanks[0..5];
-        $wikianswer = "Exact match : ".$wikiquery."\n".$wikianswer."\nMore information available at http://wiki.lemonia.org/index.php?pagename=".$wikiquery;
-        #$wikianswer=~s/\n\\s+\n/\n/g ; #Zap whitespace
-        #$wikianswer=~s/\n*/\n/g ; #Zap more whitespace
-
-        $wikisth->finish;
-}
-        $wikidbh->disconnect;
-
-        return $wikianswer;
-}
 
