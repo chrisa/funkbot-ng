@@ -1,0 +1,325 @@
+# -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
+################################
+# Infobot Module               #
+################################
+
+package BotModules::InfobotDBI;
+use vars qw(@ISA);
+@ISA = qw(BotModules BotModules::Infobot);
+1;
+
+our $dbh;
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+			     ['dbiDsn', 1, 1, []],
+			     ['dbiHost', 1, 1, []],
+			     ['dbiUser', 1, 1, []],
+			     ['dbiPass', 1, 1, []],
+			     ['dbiOpts', 1, 1, []],
+			     );
+}
+
+sub unload {
+    my $self = shift;
+    $dbh->disconnect;
+    $self->SUPER::unload(@_);
+}
+ 
+sub SetFactoid {
+    my $self = shift;
+    my($event, $replace, $subject, $database, $add, $object, $direct, $fromBot) = @_;
+    if ($direct or $self->allowed($event, 'Learn')) {
+
+      teacher: {
+            if (@{$self->{'teachers'}}) {
+                foreach my $user (@{$self->{'teachers'}}) {
+                    if ($user eq $event->{'userName'}) {
+                        last teacher;
+                    }
+                }
+                return 0;
+            }
+        }
+
+        # update the database
+	if (not $replace) {
+	    $subject = $self->CanonicalizeFactoid($database, $subject);
+	} else {
+	    my $oldSubject = $self->CanonicalizeFactoid($database, $subject);
+	    # DELETE FROM $database WHERE subject = $oldSubject
+	}
+	if ($replace or not _subjectExists($database, $subject)) {
+            $self->debug("Learning that $subject $database '$object'.");
+	    # INSERT INTO $database (subject,object) VALUES ($subject, $object)
+        } elsif (not $add) {
+            my @what = _getObjects($database, $subject);
+            if (not defined($fromBot)) {
+                if (scalar @what == 1 and $what[0] eq $object) {
+                    $self->targettedSay($event, 'Yep, that\'s what I thought. Thanks for confirming it.', $direct);
+                } else {
+                    # XXX "that's one of the alternatives, sure..."
+                    $self->targettedSay($event, "But $subject $database ".(join ' or ', @what)."...", $direct);
+                }
+            }
+            return 0;		# failed to update database
+        } else {
+            $self->debug("Learning that $subject $database also '$object'.");
+	    # INSERT INTO $database (subject,object) VALUES ($subject, $object)
+        }
+        if (not defined($fromBot)) {
+            $self->targettedSay($event, 'ok', $direct);
+        }
+        if (defined($self->{'researchNotes'}->{lc($subject)})) {
+            my @queue = @{$self->{'researchNotes'}->{lc($subject)}};
+            foreach my $entry (@queue) {
+                my($eventE, $typeE, $databaseE, $subjectE, $targetE, $directE, $visitedAliasesE, $timeE) = @$entry;
+                if ($typeE eq 'QUERY') {
+                    if ((defined($targetE) and $event->{'from'} ne $targetE) or
+                        ($event->{'from'} ne $eventE->{'from'} and
+                         ($event->{'channel'} eq '' or $event->{'channel'} ne $eventE->{'channel'}))) {
+                        my($how, $what, $propagated) = $self->GetFactoid($eventE, $databaseE, $subjectE,
+                                                                         $targetE, $directE, $visitedAliasesE, $event->{'from'});
+                        if (defined($how)) {
+                            if (defined($targetE)) {
+                                $self->debug("I now know what '$subject' $database, so telling $targetE, since $eventE->{'from'} told me to.");
+                            } else {
+                                $self->debug("I now know what '$subject' $database, so telling $eventE->{'from'} who wanted to know.");
+                            }
+                            $self->factoidSay($eventE, $how, $what, $directE, $targetE);
+                            $entry->[1] = 'OLD';
+                        } else {
+                            # either $propagated, or database doesn't match requested database, or internal error
+                            $self->debug("I now know what '$subject' $database, but for some reason that ".
+                                         "didn't help me help $eventE->{'from'} who needed to know what '$subjectE' $databaseE.");
+                        }
+                    }
+                } elsif ($typeE eq 'DUNNO') {
+                    my $who = defined($targetE) ? $targetE : $eventE->{'from'};
+		    my $fact = _getObjects($database, $subject);
+                    $self->directSay($eventE, ":INFOBOT:REPLY <$who> $subject =$database=> $fact");
+                    $entry->[1] = 'OLD';
+                }
+            }
+        }
+        $self->{'edits'}++;
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+sub Literal {
+    my $self = shift;
+    my($event, $subject) = @_;
+    my $is = $self->CanonicalizeFactoid('is', $subject);
+    my $are = $self->CanonicalizeFactoid('are', $subject);
+    if (defined($is) or defined($are)) {
+        local $" = '\' or \'';
+        if (_subjectExists($database, $is)) {
+            my @what = _getObjects($database, $is);
+	    $self->targettedSay($event, "$is is ".(join ' or ', @what).".", 1);
+        }
+        if (_subjectExists($database, $are)) {
+	    my @what = _getObjects($database, $are);
+	    $self->targettedSay($event, "$are are ".(join ' or ', @what).".", 1);
+	}
+    } else {
+	$self->targettedSay($event, "I have no record of anything called '$subject'.", 1);
+    }
+}
+
+sub GetFactoid {
+    my $self = shift;
+    my($event, $originalDatabase, $subject, $target, $direct, $visitedAliases, $friend) = @_;
+    if (not defined($visitedAliases)) {
+        $visitedAliases = {};
+    }
+    my $database;
+    ($database, $subject) = $self->FindFactoid($originalDatabase, $subject);
+    if (_subjectExists($database, $subject)) {
+        my @alternatives = _getObjects($database, $subject);
+        my $answer;
+        if (scalar @alternatives) {
+            if (not defined($self->{'factoidPositions'}->{$database}->{$subject})
+                or $self->{'factoidPositions'}->{$database}->{$subject} >= scalar(@alternatives)) {
+                $self->{'factoidPositions'}->{$database}->{$subject} = 0;
+            }
+            $answer = @alternatives[$self->{'factoidPositions'}->{$database}->{$subject}];
+            $self->{'factoidPositions'}->{$database}->{$subject}++;
+        } else {
+            $answer = @alternatives[0];
+        }
+        my $who = defined($target) ? $target : $event->{'from'};
+        $answer =~ s/\$who/$who/go;
+        if ($answer =~ /^<alias>(.*)$/o) {
+            if ($visitedAliases->{$1}) {
+                return ('msg', "see $subject", 0);
+            } else {
+                $visitedAliases->{$subject}++;
+                my($how, $what, $propagated) = $self->GetFactoid($event, undef, $1, $target, $direct, $visitedAliases);
+                if (not defined($how)) {
+                    return ('msg', "see $1", $propagated);
+                } else {
+                    return ($how, $what, $propagated);
+                }
+            }
+        } elsif ($answer =~ /^<action>/o) {
+            $answer =~ s/^<action>\s*//o;
+            return ('me', $answer, 0);
+        } else {
+            if ($answer =~ /^<reply>/o) {
+                $answer =~ s/^<reply>\s*//o;
+            } else {
+                # pick a 'random' prefix
+                my $prefix = $self->{'prefixes'}->[time() % @{$self->{'prefixes'}}];
+                if (lc($who) eq lc($subject)) {
+                    $answer = "${prefix}you are $answer";
+                } else {
+                    $answer = "$prefix$subject $database $answer";
+                }
+                if (defined($friend)) {
+                    $answer = "$friend knew: $answer";
+                }
+            }
+            return ('msg', $answer, 0);
+        }
+    } else {
+        # we have no idea what this is
+        return (undef, undef, $self->Research($event, $originalDatabase, $subject, $target, $direct, $visitedAliases));
+    }
+}
+
+sub CanonicalizeFactoid {
+    my $self = shift;
+    my($database, $subject) = @_;
+    if (not _subjectExists($database, $subject)) {
+	my @subjects = ;# SELECT subjects FROM $database WHERE LOWER($subject) = LOWER(subject)
+	if (scalar $subjects) {
+	    return $subjects[0];
+	}
+    }
+}
+
+sub FindFactoid {
+    my $self = shift;
+    my($database, $subject) = @_;
+    if (not defined($database)) {
+        $database = 'is';
+        $subject = $self->CanonicalizeFactoid('is', $subject);
+        if (not _subjectExists('is', $subject)) {
+            $subject = $self->CanonicalizeFactoid('are', $subject);
+            if (_subjectExists('are', $subject)) {
+                $database = 'are';
+            }
+        }
+    } else {
+        $subject = $self->CanonicalizeFactoid($database, $subject);
+    }
+    return ($database, $subject);
+}
+
+sub EditFactoid {
+    my $self = shift;
+    my($event, $subject, $search, $replace, $global, $caseInsensitive, $direct) = @_;
+    if ($direct or $self->allowed($event, 'Edit')) {
+        my $database;
+        ($database, $subject) = $self->FindFactoid($database, $subject);
+        if (not _subjectExists($database, $subject)) {
+            $self->targettedSay($event, "Er, I don't know about this $subject thingy...", $direct);
+            return;
+        }
+        $self->debug("Editing the $subject entry.");
+	
+        while (SELECT id, object FROM $database WHERE subject = $subject) {
+	    $search = $self->sanitizeRegexp($search);
+	    if ($global and $caseInsensitive) {
+                $factoid =~ s/$search/$replace/gi;
+            } elsif ($global) {
+                $factoid =~ s/$search/$replace/g;
+            } elsif ($caseInsensitive) {
+                $factoid =~ s/$search/$replace/i;
+            } else {
+                $factoid =~ s/$search/$replace/;
+            }
+	    # UPDATE $database SET object = $object WHERE id = $id
+        }
+        $self->targettedSay($event, 'ok', $direct);
+        $self->{'edits'}++;
+    }
+}
+
+sub ForgetFactoid {
+    my $self = shift;
+    my($event, $subject, $direct) = @_;
+    if ($direct or $self->allowed($event, 'Edit')) {
+        my $count = 0;
+        my $database;
+        foreach my $db ('is', 'are') {
+            ($database, $subject) = $self->FindFactoid($db, $subject);
+            if (_subjectExists($database, $subject)) {
+		# DELETE FROM $database WHERE subject = $subject
+                $count++;
+            }
+        }
+        if ($count) {
+            $self->targettedSay($event, "I've forgotten what I knew about '$subject'.", $direct);
+            $self->{'edits'}++;
+        } else {
+            $self->targettedSay($event, "I never knew anything about '$subject' in the first place!", $direct);
+        }
+    }
+}
+
+sub tellBot {
+    my $self = shift;
+    my($event, $subject, $target) = @_;
+    my $count = 0;
+    my $database;
+    foreach my $db ('is', 'are') {
+        ($database, $subject) = $self->FindFactoid($db, $subject);
+        if (_subjectExists($database, $subject)) {
+	    my @facts = _getObjects($database, $subject);
+	    my $fact = join '|',@facts;
+            $self->directSay($event, ":INFOBOT:REPLY <$target> $subject =$database=> $fact");
+            $count++;
+        }
+    }
+    return $count;
+}
+
+sub countFactoids {
+    my $self = shift;
+    # don't want to use keys() as that would load the whole database index into memory.
+    my $sum = 0;
+    $sum += ; # SELECT count(*) FROM is
+    $sum += ; # SELECT count(*) FROM are
+    return $sum;
+}
+
+sub _subjectExists {
+    my ($database, $subject) = @_;
+    my $sth = $dbh->prepare("SELECT COUNT(*) FROM :database WHERE subject = :subject");
+    $sth->bind_param(':database', $database);
+    $sth->bind_param(':subject', $subject);
+    my $rv = $sth->execute;
+    
+    my ($count) = $sth->fetchrow_array;
+    return $count;
+}
+
+sub _getObjects {
+    my ($database, $subject) = @_;
+    my $sth = $dbh->prepare("SELECT object FROM :database WHERE subject = :subject");
+    $sth->bind_param(':database', $database);
+    $sth->bind_param(':subject', $subject);
+    my $rv = $sth->execute;
+    my @objects;
+    while (my ($object) = $sth->fetchrow_array) {
+	push @objects, $object;
+    }
+    return @objects;
+}
