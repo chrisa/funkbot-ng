@@ -765,3 +765,5 @@ sub noIdea {
         $self->targettedSay($event, "Sorry, I've no idea what '$subject' $database.", $direct);
     }
 }
+
+1;

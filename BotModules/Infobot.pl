@@ -42,6 +42,8 @@ sub use {
 sub dump {
     my %db;
     tie(%db, 'AnyDBM_File', shift, O_RDONLY, 0666);
+warn "tied";
+print scalar %db;
     while (my ($key, $val) = each %db) {
         chomp $val;
         print "$key => $val\n";

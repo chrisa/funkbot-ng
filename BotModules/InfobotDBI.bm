@@ -347,6 +347,7 @@ sub tellBot {
 sub countFactoids {
     my $self = shift;
     my $sth = $dbh->prepare("SELECT COUNT(*) FROM factoids");
+    $sth->execute;
     my ($sum) = $sth->fetchrow_array;
     return $sum;
 }
@@ -374,3 +375,5 @@ sub _getObjects {
     }
     return @objects;
 }
+
+1;
