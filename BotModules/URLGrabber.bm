@@ -57,7 +57,7 @@ sub Told {
         $self->say($event, 'Attempting to reduce the score of link id '.$1);
         minuslink($1);
     } else {
-        return $self->SUPER::Heard(@_);
+        return $self->SUPER::Told(@_);
     }
     return 0;
 }
