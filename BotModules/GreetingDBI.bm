@@ -1,0 +1,230 @@
+# -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
+################################
+# Infobot Module               #
+################################
+
+package BotModules::GreetingDBI;
+use strict;
+use DBI;
+use lib 'BotModules/';
+require 'Greeting.bm';
+use vars qw(@ISA);
+@ISA = qw(BotModules::Greeting);
+1;
+
+our $dbh;
+my $seen; # fake 'seen' hash, to keep old Greeting.bm happy. 
+ 
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+			     ['dbiDsn', 1, 1, ''],
+			     ['dbiHost', 1, 1, ''],
+			     ['dbiUser', 1, 1, ''],
+			     ['dbiPass', 1, 1, ''],
+			     ['dbiOpts', 1, 1, {}],
+			     );
+}
+
+sub unload {
+    my $self = shift;
+    $dbh->disconnect;
+    $self->SUPER::unload(@_);
+}
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    my $now = time();
+    $self->{'_lastSpoken'}->{$event->{'user'}} = $now;
+    if ($event->{'channel'} ne '') {
+        my $channel = $event->{'channel'};
+	_updateSeen(lc $event->{'from'}, $now, "saying '$message' to me in $channel.");
+    }
+
+    $self->SUPER::Told(@_);
+}
+
+sub Heard {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($event->{'channel'} ne '') {
+        my $channel = $event->{'channel'};
+	_updateSeen(lc $event->{'from'}, time(), "saying '$message' in $channel.");
+    }
+    $self->SUPER::Heard(@_);
+}
+
+sub Felt {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($event->{'channel'} ne '') {
+        my $nick = $event->{'from'};
+        my $channel = $event->{'channel'};
+	_updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+    }
+    $self->SUPER::Felt(@_);
+}
+
+sub Saw {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($event->{'channel'} ne '') {
+        my $nick = $event->{'from'};
+        my $channel = $event->{'channel'};
+	_updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+    }
+    $self->SUPER::Saw(@_);
+}
+
+sub SpottedNickChange {
+    my $self = shift;
+    my ($event, $from, $to) = @_;
+    _updateSeen(lc $event->{'from'}, time(), "changing nick to $to.");
+    return $self->SUPER::SpottedNickChange(@_);
+}
+
+sub _updateSeen {
+    my ($nick, $time, $text) = @_;
+
+    my $sth = $dbh->prepare("SELECT COUNT(*) FROM seen WHERE NICK = ?");
+    $sth->bind_param(1, $nick);
+    $sth->execute;
+    my ($count) = $sth->fetchrow_array;
+
+    if ($count) {
+
+	$sth = $dbh->prepare("UPDATE seen SET time = ?, text = ? WHERE nick = ?");
+	$sth->bind_param(1, $time);
+	$sth->bind_param(2, $text);
+	$sth->bind_param(3, $nick);
+	$sth->execute;
+
+    } else {
+
+	$sth = $dbh->prepare("INSERT INTO seen (nick, time, text) VALUES ?, ?, ?");
+	$sth->bind_param(1, $time);
+	$sth->bind_param(2, $text);
+	$sth->bind_param(3, $nick);
+	$sth->execute;
+
+    }
+}
+
+sub DoSeen {
+    my $self = shift;
+    my ($event, $who) = @_;
+    if (lc $who eq lc $event->{'from'}) {
+        $self->say($event, 'You\'re right here, duh!');
+    } elsif (lc $who eq lc $event->{'nick'}) {
+        $self->say($event, 'I\'m right here, duh!');
+    } elsif (defined($self->{'seenOverrides'}->{$who})) {
+        $self->say($event, $self->{'seenOverrides'}->{$who});
+    } else {
+
+	my $sth = $dbh->prepare("SELECT time FROM see WHERE nick = ?");
+	$sth->bind_param(1, lc $who);
+	$sth->execute;
+	my ($seconds) = $sth->fetchrow_array;
+
+        if (defined($seconds)) {
+            my $seconds = time() - $seconds;
+            my $time = '';
+            if ($seconds > 90) {
+                my $minutes = int $seconds / 60;
+                $seconds %= 60;
+                if ($minutes > 90) {
+                    my $hours = int $minutes / 60;
+                    $minutes %= 60;
+                    if ($hours > 36) {
+                        my $days = int $hours / 24;
+                        $hours %= 24;
+                        if ($days > 10) {
+                            my $weeks = int $days / 7;
+                            $days %= 7;
+                            if ($weeks > 10) {
+                                # good god, nice connection
+                            }
+                            if ($weeks != 0) {
+                                if ($time ne '') {
+                                    $time .= ', ';
+                                }
+                                if ($weeks == 1) {
+                                    $time .= "$weeks week";
+                                } else {
+                                    $time .= "$weeks weeks";
+                                }
+                            }
+                        }
+                        if ($days != 0) {
+                            if ($time ne '') {
+                                $time .= ', ';
+                            }
+                            if ($days == 1) {
+                                $time .= "$days day";
+                            } else {
+                                $time .= "$days days";
+                            }
+                        }
+                    }
+                    if ($hours != 0) {
+                        if ($time ne '') {
+                            $time .= ', ';
+                        }
+                        if ($hours == 1) {
+                            $time .= "$hours hour";
+                        } else {
+                            $time .= "$hours hours";
+                        }
+                    }
+                }
+                if ($minutes != 0) {
+                    if ($time ne '') {
+                        $time .= ', ';
+                    }
+                    if ($minutes == 1) {
+                        $time .= "$minutes minute";
+                    } else {
+                        $time .= "$minutes minutes";
+                    }
+                }
+            }
+            if ($seconds == 0) {
+                if ($time eq '') {
+                    $time .= 'right about now';
+                } else {
+                    $time .= ' ago';
+                }
+            } else {
+                if ($time ne '') {
+                    $time .= ' and ';
+                }
+                if ($seconds == 1) {
+                    $time .= 'a second ago';
+                } elsif ($seconds == 2) {
+                    $time .= 'a couple of seconds ago';
+                } else {
+                    $time .= "$seconds seconds ago";
+                }
+            }
+	    my $sth = $dbh->prepare("SELECT text FROM seen WHERE nick = ?");
+	    $sth->bind_param(1, lc $who);
+	    $sth->execute;
+	    my ($what) = $sth->fetchrow_array;
+            $self->say($event, "$who was last seen $time, $what");
+        } else {
+            my $n = '';
+            if ($who =~ /^[aeiou]/o) {
+                $n = 'n';
+            }
+            $self->say($event, "I've never seen a$n '$who', sorry.");
+        }
+    }
+}
+
+sub unload {
+    my $self = shift;
+    $self->SUPER::unload(@_);
+}
