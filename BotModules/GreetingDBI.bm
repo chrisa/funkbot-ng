@@ -10,11 +10,9 @@ use lib 'BotModules/';
 require 'Greeting.bm';
 use vars qw(@ISA);
 @ISA = qw(BotModules::Greeting);
-1;
 
-our $dbh;
 my $seen; # fake 'seen' hash, to keep old Greeting.bm happy. 
- 
+
 # RegisterConfig - Called when initialised, should call registerVariables
 sub RegisterConfig {
     my $self = shift;
@@ -30,6 +28,7 @@ sub RegisterConfig {
 
 sub unload {
     my $self = shift;
+    my $dbh = $self->getDbh;
     $dbh->disconnect;
     $self->SUPER::unload(@_);
 }
@@ -41,7 +40,7 @@ sub Told {
     $self->{'_lastSpoken'}->{$event->{'user'}} = $now;
     if ($event->{'channel'} ne '') {
         my $channel = $event->{'channel'};
-	_updateSeen(lc $event->{'from'}, $now, "saying '$message' to me in $channel.");
+	$self->updateSeen(lc $event->{'from'}, $now, "saying '$message' to me in $channel.");
     }
 
     $self->SUPER::Told(@_);
@@ -52,7 +51,7 @@ sub Heard {
     my ($event, $message) = @_;
     if ($event->{'channel'} ne '') {
         my $channel = $event->{'channel'};
-	_updateSeen(lc $event->{'from'}, time(), "saying '$message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "saying '$message' in $channel.");
     }
     $self->SUPER::Heard(@_);
 }
@@ -63,7 +62,7 @@ sub Felt {
     if ($event->{'channel'} ne '') {
         my $nick = $event->{'from'};
         my $channel = $event->{'channel'};
-	_updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
     }
     $self->SUPER::Felt(@_);
 }
@@ -74,7 +73,7 @@ sub Saw {
     if ($event->{'channel'} ne '') {
         my $nick = $event->{'from'};
         my $channel = $event->{'channel'};
-	_updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
+	$self->updateSeen(lc $event->{'from'}, time(), "saying '* $nick $message' in $channel.");
     }
     $self->SUPER::Saw(@_);
 }
@@ -82,13 +81,14 @@ sub Saw {
 sub SpottedNickChange {
     my $self = shift;
     my ($event, $from, $to) = @_;
-    _updateSeen(lc $event->{'from'}, time(), "changing nick to $to.");
+    $self->updateSeen(lc $event->{'from'}, time(), "changing nick to $to.");
     return $self->SUPER::SpottedNickChange(@_);
 }
 
-sub _updateSeen {
-    my ($nick, $time, $text) = @_;
+sub updateSeen {
+    my ($self, $nick, $time, $text) = @_;
 
+    my $dbh = $self->getDbh();
     my $sth = $dbh->prepare("SELECT COUNT(*) FROM seen WHERE NICK = ?");
     $sth->bind_param(1, $nick);
     $sth->execute;
@@ -96,7 +96,7 @@ sub _updateSeen {
 
     if ($count) {
 
-	$sth = $dbh->prepare("UPDATE seen SET time = ?, text = ? WHERE nick = ?");
+	$sth = $dbh->prepare("UPDATE seen SET time = ?, seentext = ? WHERE nick = ?");
 	$sth->bind_param(1, $time);
 	$sth->bind_param(2, $text);
 	$sth->bind_param(3, $nick);
@@ -104,7 +104,7 @@ sub _updateSeen {
 
     } else {
 
-	$sth = $dbh->prepare("INSERT INTO seen (nick, time, text) VALUES ?, ?, ?");
+	$sth = $dbh->prepare("INSERT INTO seen (nick, time, seentext) VALUES ?, ?, ?");
 	$sth->bind_param(1, $time);
 	$sth->bind_param(2, $text);
 	$sth->bind_param(3, $nick);
@@ -123,7 +123,7 @@ sub DoSeen {
     } elsif (defined($self->{'seenOverrides'}->{$who})) {
         $self->say($event, $self->{'seenOverrides'}->{$who});
     } else {
-
+	my $dbh = $self->getDbh();
 	my $sth = $dbh->prepare("SELECT time FROM see WHERE nick = ?");
 	$sth->bind_param(1, lc $who);
 	$sth->execute;
@@ -209,7 +209,7 @@ sub DoSeen {
                     $time .= "$seconds seconds ago";
                 }
             }
-	    my $sth = $dbh->prepare("SELECT text FROM seen WHERE nick = ?");
+	    my $sth = $dbh->prepare("SELECT seentext FROM seen WHERE nick = ?");
 	    $sth->bind_param(1, lc $who);
 	    $sth->execute;
 	    my ($what) = $sth->fetchrow_array;
@@ -228,3 +228,6 @@ sub unload {
     my $self = shift;
     $self->SUPER::unload(@_);
 }
+
+1;
+ 

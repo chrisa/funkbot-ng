@@ -1113,7 +1113,6 @@ sub configStructure {
     return \%struct;
 }
 
-
 # internal routines for handling the modules
 
 sub getModule {
@@ -1238,6 +1237,10 @@ sub checkPassword {
 # And now, for my next trick, the base module (duh).
 
 package BotModules;
+use FreezeThaw;
+
+# cache of database handles
+my $handles;
 
 1; # nothing to see here...
 
@@ -2162,6 +2165,22 @@ sub Log {
     my ($event) = @_;
 }
 
+# getDbh - called by modules which want a database handle. 
+# keep a cache of handles, based on their connection params. 
+# don't change the connection parameters once you've been given  
+# or bad things will happen - we don't track the changes here
+# and will happily give you a broken handle later. See also 
+# Apache::DBI.
+
+sub getDbh {
+    my ($self) = @_;
+    require DBI;
+    my $key = freeze( [$self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts}] );
+    unless (defined $handles->{$key} && $handles->{$key}->ping) {
+        $handles->{key} = DBI->connect($self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts});
+    }
+    return $handles->{$key};
+}
 
 ################################
 # Admin Module                 #

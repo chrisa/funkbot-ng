@@ -11,9 +11,7 @@ require 'Infobot.bm';
 use vars qw(@ISA);
 @ISA = qw(BotModules::Infobot);
 1;
-
-our $dbh;
-
+ 
 # RegisterConfig - Called when initialised, should call registerVariables
 sub RegisterConfig {
     my $self = shift;
@@ -29,22 +27,14 @@ sub RegisterConfig {
 
 sub unload {
     my $self = shift;
+    my $dbh = $self->getDbh();
     $dbh->disconnect;
     $self->SUPER::unload(@_);
 }
 
 sub Told {
     my $self = shift;
-    my ($event, $message) = @_;
-    if ($message =~ /^\s*dbconnect[?\s]*$/osi && !defined $dbh) {
-        $dbh = DBI->connect($self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts});
-	if ($dbh) {
-	        $self->debug("Connected");
-	}
-    } else {
-        return $self->SUPER::Told(@_);
-    }
-    return 0; # we've dealt with it, no need to do anything else.
+    return $self->SUPER::Told(@_);
 }
 
  
@@ -52,7 +42,7 @@ sub SetFactoid {
     my $self = shift;
     my($event, $replace, $subject, $type, $add, $object, $direct, $fromBot) = @_;
     if ($direct or $self->allowed($event, 'Learn')) {
-
+        my $dbh = $self->getDbh();
       teacher: {
             if (@{$self->{'teachers'}}) {
                 foreach my $user (@{$self->{'teachers'}}) {
@@ -74,7 +64,7 @@ sub SetFactoid {
             $sth->bind_param(2, $oldSubject);
             $sth->execute;
         }
-        if ($replace or not _subjectExists($type, $subject)) {
+        if ($replace or not $self->subjectExists($type, $subject)) {
             $self->debug("Learning that $subject $type '$object'.");
             my $sth = $dbh->prepare("INSERT INTO factoids (subject,object,type) VALUES (?, ?, ?)");
             $sth->bind_param(1, $subject);
@@ -83,7 +73,7 @@ sub SetFactoid {
             $sth->execute;
 
         } elsif (not $add) {
-            my @what = _getObjects($type, $subject);
+            my @what = $self->getObjects($type, $subject);
             if (not defined($fromBot)) {
                 if (scalar @what == 1 and $what[0] eq $object) {
                     $self->targettedSay($event, 'Yep, that\'s what I thought. Thanks for confirming it.', $direct);
@@ -132,7 +122,7 @@ sub SetFactoid {
                     }
                 } elsif ($typeE eq 'DUNNO') {
                     my $who = defined($targetE) ? $targetE : $eventE->{'from'};
-                    my $fact = _getObjects($type, $subject);
+                    my $fact = $self->getObjects($type, $subject);
                     $self->directSay($eventE, ":INFOBOT:REPLY <$who> $subject =$type=> $fact");
                     $entry->[1] = 'OLD';
                 }
@@ -152,12 +142,12 @@ sub Literal {
     my $are = $self->CanonicalizeFactoid('are', $subject);
     if (defined($is) or defined($are)) {
         local $" = '\' or \'';
-        if (_subjectExists('is', $is)) {
-            my @what = _getObjects('are', $is);
+        if ($self->subjectExists('is', $is)) {
+            my @what = $self->getObjects('are', $is);
 	    $self->targettedSay($event, "$is is ".(join ' or ', @what).".", 1);
         }
-        if (_subjectExists('are', $are)) {
-	    my @what = _getObjects('are', $are);
+        if ($self->subjectExists('are', $are)) {
+	    my @what = $self->getObjects('are', $are);
 	    $self->targettedSay($event, "$are are ".(join ' or ', @what).".", 1);
 	}
     } else {
@@ -173,9 +163,9 @@ sub GetFactoid {
     }
     my $type;
     ($type, $subject) = $self->FindFactoid($originalType, $subject);
-    if (_subjectExists($type, $subject)) {
+    if ($self->subjectExists($type, $subject)) {
 
-        my @alternatives = _getObjects($type, $subject);
+        my @alternatives = $self->getObjects($type, $subject);
         my $answer;
         if (scalar @alternatives) {
             if (not defined($self->{'factoidPositions'}->{$type}->{$subject})
@@ -230,7 +220,8 @@ sub GetFactoid {
 sub CanonicalizeFactoid {
     my $self = shift;
     my($type, $subject) = @_;
-    if (not _subjectExists($type, $subject)) {
+    if (not $self->subjectExists($type, $subject)) {
+        my $dbh = $self->getDbh();
         my $sth = $dbh->prepare("SELECT subject FROM factoids WHERE LOWER(?) = LOWER(subject) AND type = ?");
         $sth->bind_param(1, $subject);
         $sth->bind_param(2, $type);
@@ -255,9 +246,9 @@ sub FindFactoid {
     if (not defined($type)) {
         $type = 'is';
         $subject = $self->CanonicalizeFactoid('is', $subject);
-        if (not _subjectExists('is', $subject)) {
+        if (not $self->subjectExists('is', $subject)) {
             $subject = $self->CanonicalizeFactoid('are', $subject);
-            if (_subjectExists('are', $subject)) {
+            if ($self->subjectExists('are', $subject)) {
                 $type = 'are';
             }
         }
@@ -273,13 +264,13 @@ sub EditFactoid {
     if ($direct or $self->allowed($event, 'Edit')) {
         my $type;
         ($type, $subject) = $self->FindFactoid($type, $subject);
-        if (not _subjectExists($type, $subject)) {
+        if (not $self->subjectExists($type, $subject)) {
             $self->targettedSay($event, "Er, I don't know about this $subject thingy...", $direct);
             return;
         }
         $self->debug("Editing the $subject entry.");
         $search = $self->sanitizeRegexp($search);
-        
+        my $dbh = $self->getDbh();
         my $sth = $dbh->prepare("SELECT id, object FROM factoids WHERE subject = ? AND type = ?");
         $sth->bind_param(1, $subject);
         $sth->bind_param(2, $type);
@@ -310,7 +301,8 @@ sub ForgetFactoid {
         my $type;
         foreach my $db ('is', 'are') {
             ($type, $subject) = $self->FindFactoid($db, $subject);
-            if (_subjectExists($type, $subject)) {
+            if ($self->subjectExists($type, $subject)) {
+                my $dbh = $self->getDbh();
                 my $sth = $dbh->prepare("DELETE FROM factoids WHERE subject = ? AND type = ?");
                 $sth->bind_param(1, $subject);
                 $sth->bind_param(2, $type);
@@ -334,8 +326,8 @@ sub tellBot {
     my $type;
     foreach my $db ('is', 'are') {
         ($type, $subject) = $self->FindFactoid($db, $subject);
-        if (_subjectExists($type, $subject)) {
-	    my @facts = _getObjects($type, $subject);
+        if ($self->subjectExists($type, $subject)) {
+	    my @facts = $self->getObjects($type, $subject);
 	    my $fact = join '|',@facts;
             $self->directSay($event, ":INFOBOT:REPLY <$target> $subject =$type=> $fact");
             $count++;
@@ -346,14 +338,16 @@ sub tellBot {
 
 sub countFactoids {
     my $self = shift;
+    my $dbh = $self->getDbh();
     my $sth = $dbh->prepare("SELECT COUNT(*) FROM factoids");
     $sth->execute;
     my ($sum) = $sth->fetchrow_array;
     return $sum;
 }
 
-sub _subjectExists {
-    my ($type, $subject) = @_;
+sub subjectExists {
+    my ($self, $type, $subject) = @_;
+    my $dbh = $self->getDbh();
     my $sth = $dbh->prepare("SELECT COUNT(*) FROM factoids WHERE subject = ? AND type = ?");
     $sth->bind_param(1, $subject);
     $sth->bind_param(2, $type);
@@ -363,8 +357,9 @@ sub _subjectExists {
     return $count;
 }
 
-sub _getObjects {
-    my ($type, $subject) = @_;
+sub getObjects {
+    my ($self, $type, $subject) = @_;
+    my $dbh = $self->getDbh();
     my $sth = $dbh->prepare("SELECT object FROM factoids WHERE subject = ? AND type = ?");
     $sth->bind_param(1, $subject);
     $sth->bind_param(2, $type);
