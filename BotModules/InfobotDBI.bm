@@ -46,15 +46,23 @@ sub SetFactoid {
         }
 
         # update the database
-	if (not $replace) {
-	    $subject = $self->CanonicalizeFactoid($database, $subject);
-	} else {
-	    my $oldSubject = $self->CanonicalizeFactoid($database, $subject);
-	    # DELETE FROM $database WHERE subject = $oldSubject
-	}
-	if ($replace or not _subjectExists($database, $subject)) {
+        if (not $replace) {
+            $subject = $self->CanonicalizeFactoid($database, $subject);
+        } else {
+            my $oldSubject = $self->CanonicalizeFactoid($database, $subject);
+            my $sth = $dbh->prepare("DELETE FROM factoids WHERE subject = :oldSubject AND database = :database");
+            $sth->bind_param(':database' $database);
+            $sth->bind_param(':oldSubject', $oldSubject);
+            $sth->execute;
+        }
+        if ($replace or not _subjectExists($database, $subject)) {
             $self->debug("Learning that $subject $database '$object'.");
-	    # INSERT INTO $database (subject,object) VALUES ($subject, $object)
+            my $sth = $dbh->prepare("INSERT INTO factoids (subject,object,database) VALUES (:subject, :object, :database)");
+            $sth->bind_param(':database' $database);
+            $sth->bind_param(':subject', $subject);
+            $sth->bind_param(':object', $object);
+            $sth->execute;
+
         } elsif (not $add) {
             my @what = _getObjects($database, $subject);
             if (not defined($fromBot)) {
@@ -68,7 +76,13 @@ sub SetFactoid {
             return 0;		# failed to update database
         } else {
             $self->debug("Learning that $subject $database also '$object'.");
-	    # INSERT INTO $database (subject,object) VALUES ($subject, $object)
+            
+            my $sth = $dbh->prepare("INSERT INTO factoids (subject,object,database) VALUES (:subject, :object, :database)");
+            $sth->bind_param(':database' $database);
+            $sth->bind_param(':subject', $subject);
+            $sth->bind_param(':object', $object);
+            $sth->execute;
+
         }
         if (not defined($fromBot)) {
             $self->targettedSay($event, 'ok', $direct);
@@ -197,10 +211,17 @@ sub CanonicalizeFactoid {
     my $self = shift;
     my($database, $subject) = @_;
     if (not _subjectExists($database, $subject)) {
-	my @subjects = ;# SELECT subjects FROM $database WHERE LOWER($subject) = LOWER(subject)
-	if (scalar $subjects) {
-	    return $subjects[0];
-	}
+        my $sth = $dbh->prepare("SELECT subjects FROM factoids WHERE LOWER(:subject) = LOWER(subject) AND database = :database");
+        $sth->bind_param(':database' $database);
+        $sth->bind_param(':subject', $subject);
+        $sth->execute;
+        my @subjects;
+        while(my $subject = $sth->fetchrow_array) {
+            push @subjects, $subject;
+        }
+        if (scalar $subjects) {
+            return $subjects[0];
+        }
     }
 }
 
@@ -233,19 +254,27 @@ sub EditFactoid {
             return;
         }
         $self->debug("Editing the $subject entry.");
-	
-        while (SELECT id, object FROM $database WHERE subject = $subject) {
-	    $search = $self->sanitizeRegexp($search);
-	    if ($global and $caseInsensitive) {
-                $factoid =~ s/$search/$replace/gi;
+        $search = $self->sanitizeRegexp($search);
+        
+        my $sth = $dbh->prepare("SELECT id, object FROM factoids WHERE subject = $subject AND database = :database");
+        $sth->bind_param(':database' $database);
+        $sth->bind_param(':subject', $subject);
+        $sth->execute;
+        while (my ($id, $object) = $sth->fetchrow_array) {
+            if ($global and $caseInsensitive) {
+                $object =~ s/$search/$replace/gi;
             } elsif ($global) {
-                $factoid =~ s/$search/$replace/g;
+                $object =~ s/$search/$replace/g;
             } elsif ($caseInsensitive) {
-                $factoid =~ s/$search/$replace/i;
+                $object =~ s/$search/$replace/i;
             } else {
-                $factoid =~ s/$search/$replace/;
+                $object =~ s/$search/$replace/;
             }
-	    # UPDATE $database SET object = $object WHERE id = $id
+            my $upd = $dbh->prepare("UPDATE factoids SET object = :object WHERE id = :id AND database = :database");
+            $sth->bind_param(':database' $database);
+            $sth->bind_param(':object', $object);
+            $sth->bind_param(':id', $id);
+            $sth->execute;
         }
         $self->targettedSay($event, 'ok', $direct);
         $self->{'edits'}++;
@@ -261,7 +290,10 @@ sub ForgetFactoid {
         foreach my $db ('is', 'are') {
             ($database, $subject) = $self->FindFactoid($db, $subject);
             if (_subjectExists($database, $subject)) {
-		# DELETE FROM $database WHERE subject = $subject
+                my $sth = $dbh->prepare("DELETE FROM factoids WHERE subject = :subject AND database = :database");
+                $sth->bind_param(':database' $database);
+                $sth->bind_param(':subject', $subject);
+                $sth->execute;
                 $count++;
             }
         }
@@ -293,16 +325,14 @@ sub tellBot {
 
 sub countFactoids {
     my $self = shift;
-    # don't want to use keys() as that would load the whole database index into memory.
-    my $sum = 0;
-    $sum += ; # SELECT count(*) FROM is
-    $sum += ; # SELECT count(*) FROM are
+    my $sth = $dbh->prepare("SELECT COUNT(*) FROM factoids");
+    my ($sum) = $sth->fetchrow_array;
     return $sum;
 }
 
 sub _subjectExists {
     my ($database, $subject) = @_;
-    my $sth = $dbh->prepare("SELECT COUNT(*) FROM :database WHERE subject = :subject");
+    my $sth = $dbh->prepare("SELECT COUNT(*) FROM factoids WHERE subject = :subject AND database = :database");
     $sth->bind_param(':database', $database);
     $sth->bind_param(':subject', $subject);
     my $rv = $sth->execute;
@@ -313,7 +343,7 @@ sub _subjectExists {
 
 sub _getObjects {
     my ($database, $subject) = @_;
-    my $sth = $dbh->prepare("SELECT object FROM :database WHERE subject = :subject");
+    my $sth = $dbh->prepare("SELECT object FROM factoids WHERE subject = :subject AND database = :database");
     $sth->bind_param(':database', $database);
     $sth->bind_param(':subject', $subject);
     my $rv = $sth->execute;
