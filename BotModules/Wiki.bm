@@ -109,3 +109,86 @@ sub Wiki {
     $self->spawnChild($event, \&wiki_do, [$self, $event, $wiki], 'wiki', []);
 }
 
+sub doWiki {
+my ($wikiquery) = @_;
+my $wikianswer="";
+my $row;
+my $id;
+my $pagename;
+my $text="";
+my $counter;
+my $unique="NO";
+my $uniqueid;
+
+$wikiquery=~s/[ \?]*$//g ; #Zap trailing space(s) or question mark(s)
+
+my $dbh = DBI->connect("DBI:mysql:phpwiki:172.16.1.254","funkbot",undef);
+
+$dbh or die "Unable to connect to wiki Database: $dbh->errstr\n";
+my $sth = $dbh->prepare("SELECT id,pagename FROM page WHERE pagename = ?");
+
+$sth->execute($wikiquery) or die "Unable to execute query: $dbh->errstr\n";
+my $count = $sth->rows;
+if ($count==1) {
+$row = $sth->fetchrow_arrayref;
+$unique="YES";
+$uniqueid=$row->[0];
+$sth->finish;
+}
+print "Unique =".$unique." id=".$uniqueid." count=".$count;
+$sth = $dbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
+$sth->execute($wikiquery) or die "Unable to execute query: $dbh->errstr\n";
+$count = $sth->rows;
+
+
+if ($count == 1) {
+        $row = $sth->fetchrow_arrayref;
+        $id = $row->[0];
+} elsif ($count > 1) {
+        my $n=0;
+        $counter=$count;
+        while($n++<10 && $counter-- && ($row = $sth->fetchrow_arrayref)) {
+        $text.=$row->[1].", ";
+}
+if($counter > 0) {
+        $text.="and $counter more";
+} else {
+        substr($text,-2)="";
+}
+}
+$sth->finish;
+if ($count == 0) {
+        $wikiquery=~ s/ /%20/g;
+        $wikianswer="Couldn't find it in the Wiki\nMaybe you should add it at http://wiki.lemonia.org/index.php?pagename=".$wikiquery ;
+} elsif ($count == 1) {
+        $sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+        $sth->execute($id) or die "Unable to execute query: $dbh->errstr\n";
+        $row = $sth->fetchrow_arrayref;
+        if ($unique eq "NO") {
+        $wikianswer=$row->[0];
+}
+        $sth->finish;
+} elsif ($count > 1) {
+        $wikianswer=$count." hits : ".$text;
+}
+if ($unique eq "YES") {
+        $sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+        $sth->execute($uniqueid) or die "Unable to execute query: $dbh->errstr\n";
+        $row = $sth->fetchrow_arrayref;
+        $wikiquery=~ s/ /%20/g;
+
+        $wikianswer=$row->[0];
+        my @lines = split /\n/, $wikianswer;
+        my @no_blanks = grep { $_ ne '' } @lines;
+        $wikianswer = join "\n", @no_blanks[0..5];
+        $wikianswer = "Exact match : ".$wikiquery."\n".$wikianswer."\nMore information available at http://wiki.lemonia.org/index.php?pagename=".$wikiquery;
+        #$wikianswer=~s/\n\\s+\n/\n/g ; #Zap whitespace
+        #$wikianswer=~s/\n*/\n/g ; #Zap more whitespace
+
+        $sth->finish;
+}
+        $dbh->disconnect;
+
+        return $wikianswer;
+}
+
