@@ -30,7 +30,7 @@ sub Heard {
     }
 
     return $self->SUPER::Heard(@_);
-    return 0; 
+#    return 0; 
 }
 
 sub Told {
@@ -59,6 +59,23 @@ sub Told {
     } else {
         return $self->SUPER::Told(@_);
     }
+    return 0;
+}
+
+sub SpottedTopicChange {
+    my $self = shift;
+    my ($event, $channel, $newtopic) =@_;
+    my $chan="none";
+    my $nick = $event->{'from'};
+    if ($event->{'channel'} ne '') {
+        $chan = $event->{'channel'};
+    }
+    my $url = find_url($newtopic);
+    if ( $url and (index($newtopic, ' #') > index($newtopic,$url))) {
+         log_url($nick,$chan,$url,$newtopic,'topic');
+    }
+ 
+    return $self->SUPER::SpottedTopicChange(@_);
     return 0;
 }
 
