@@ -4,6 +4,7 @@
 ################################
 
 package BotModules::InfobotDBI;
+use DBI;
 use vars qw(@ISA);
 @ISA = qw(BotModules BotModules::Infobot);
 1;
@@ -51,14 +52,14 @@ sub SetFactoid {
         } else {
             my $oldSubject = $self->CanonicalizeFactoid($database, $subject);
             my $sth = $dbh->prepare("DELETE FROM factoids WHERE subject = :oldSubject AND database = :database");
-            $sth->bind_param(':database' $database);
+            $sth->bind_param(':database', $database);
             $sth->bind_param(':oldSubject', $oldSubject);
             $sth->execute;
         }
         if ($replace or not _subjectExists($database, $subject)) {
             $self->debug("Learning that $subject $database '$object'.");
             my $sth = $dbh->prepare("INSERT INTO factoids (subject,object,database) VALUES (:subject, :object, :database)");
-            $sth->bind_param(':database' $database);
+            $sth->bind_param(':database', $database);
             $sth->bind_param(':subject', $subject);
             $sth->bind_param(':object', $object);
             $sth->execute;
@@ -78,7 +79,7 @@ sub SetFactoid {
             $self->debug("Learning that $subject $database also '$object'.");
             
             my $sth = $dbh->prepare("INSERT INTO factoids (subject,object,database) VALUES (:subject, :object, :database)");
-            $sth->bind_param(':database' $database);
+            $sth->bind_param(':database', $database);
             $sth->bind_param(':subject', $subject);
             $sth->bind_param(':object', $object);
             $sth->execute;
@@ -212,7 +213,7 @@ sub CanonicalizeFactoid {
     my($database, $subject) = @_;
     if (not _subjectExists($database, $subject)) {
         my $sth = $dbh->prepare("SELECT subjects FROM factoids WHERE LOWER(:subject) = LOWER(subject) AND database = :database");
-        $sth->bind_param(':database' $database);
+        $sth->bind_param(':database', $database);
         $sth->bind_param(':subject', $subject);
         $sth->execute;
         my @subjects;
@@ -257,7 +258,7 @@ sub EditFactoid {
         $search = $self->sanitizeRegexp($search);
         
         my $sth = $dbh->prepare("SELECT id, object FROM factoids WHERE subject = $subject AND database = :database");
-        $sth->bind_param(':database' $database);
+        $sth->bind_param(':database', $database);
         $sth->bind_param(':subject', $subject);
         $sth->execute;
         while (my ($id, $object) = $sth->fetchrow_array) {
@@ -271,7 +272,7 @@ sub EditFactoid {
                 $object =~ s/$search/$replace/;
             }
             my $upd = $dbh->prepare("UPDATE factoids SET object = :object WHERE id = :id AND database = :database");
-            $sth->bind_param(':database' $database);
+            $sth->bind_param(':database', $database);
             $sth->bind_param(':object', $object);
             $sth->bind_param(':id', $id);
             $sth->execute;
@@ -291,7 +292,7 @@ sub ForgetFactoid {
             ($database, $subject) = $self->FindFactoid($db, $subject);
             if (_subjectExists($database, $subject)) {
                 my $sth = $dbh->prepare("DELETE FROM factoids WHERE subject = :subject AND database = :database");
-                $sth->bind_param(':database' $database);
+                $sth->bind_param(':database', $database);
                 $sth->bind_param(':subject', $subject);
                 $sth->execute;
                 $count++;
