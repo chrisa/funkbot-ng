@@ -2177,7 +2177,13 @@ sub getDbh {
     require DBI;
     my $key = freeze( [$self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts}] );
     unless (defined $handles->{$key} && $handles->{$key}->ping) {
-        $handles->{key} = DBI->connect($self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts});
+        $self->debug("calling connect");
+        $handles->{$key} = DBI->connect($self->{dbiDsn}, $self->{dbiUser}, $self->{dbiPass}, $self->{dbiOpts});
+        unless ($handles->{$key}){
+            $self->debug($DBI::errstr);
+        } else {
+            $self->debug("connect ok");
+        }
     }
     return $handles->{$key};
 }
