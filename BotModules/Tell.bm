@@ -1,0 +1,114 @@
+# -*- Mode: perl; tab-width: 4; indent-tabs-mode: nil; -*-
+################################
+# Tell Module                  #
+################################
+
+# $Id: Tell.bm,v 1.1 2003-10-01 22:44:07 jon Exp $
+
+# A module for getting the bot to tell people things
+
+# TODO: 
+#     Pronoun munging on message send ([s]he->you, etc). 
+#     Ignore (or moan about) messages to the bot itself
+
+package BotModules::Tell;
+use vars qw(@ISA);
+use FreezeThaw qw(freeze thaw);
+@ISA = qw(BotModules);
+1;
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+      # [ name, save?, settable? ]
+      ['tell_messages', 1, 1, {}], 
+    );		
+}	
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    return {
+	'' => 'A messaging feature. Usage: tell <person> <message ...>. The bot will give them the message in public next time they hear them speak',
+    };
+}
+
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($message =~ /^\s*tell\s+(\S+)\s+(\S.*)\s*$/os) {
+        $self->StoreMessage($event, $1, $2);
+	return 0;
+    } else {
+	 return $self->SUPER::Told(@_);
+    }
+    return 0; # dealt with it...
+}
+
+sub Heard {
+
+    my $self = shift;
+    my ($event, $message) = @_;    
+
+    # See if we have a message for this person
+    if (exists($self->{'tell_messages'}->{$event->{'from'}})) {
+	$self->SendMessage($event,$event->{'from'});
+    }
+    
+    if ($message =~ /^\s*tell\s+(\S+)\s+(\S.*)\s*$/os) {
+        $self->StoreMessage($event, $1, $2);
+	return 0;
+    } else {
+	return $self->SUPER::Heard(@_);
+    }
+    return 0; # dealt with it...
+
+}
+	
+
+
+sub StoreMessage {
+
+    my $self= shift;
+    my ($event, $to, $message) = @_;
+    my $from = $event->{'from'};
+    my %messages;
+
+    $self->debug("Saving message from $from to $to");
+    if (exists($self->{'tell_messages'}->{$to})) {
+	%messages = thaw($self->{'tell_messages'}->{$to});
+	if (exists($messages{$from})) {
+	    $self->directSay($event,"Hmm, $from. You wanted me to tell $to you said $messages{$from}. But now I'll tell them you said that instead");
+	} 
+    } else {
+	$self->directSay($event,"OK $from, next time I see $to around, I'll tell them that");
+    }
+    
+    # Some database foo could go here instead
+    $messages{$from} = $message;
+    $self->{'tell_messages'}->{$to} = freeze(%messages);
+    $self->saveConfig();
+
+}
+
+sub SendMessage {
+
+    my $self= shift;
+    my ($event, $to) = @_;
+
+    my %messages = thaw($self->{'tell_messages'}->{$to});
+    foreach my $from (keys(%messages)) {
+
+ 	$self->debug("Sending stored message from $from to $to");
+
+	$self->say($event,"Hi, $to. $from wanted you to know the folllowing: $messages{$from}");
+	
+    }
+    delete($self->{'tell_messages'}->{$to});
+    $self->saveConfig();
+
+}
+
