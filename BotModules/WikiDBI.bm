@@ -1,0 +1,112 @@
+# Wiki module for mozbot. 
+#
+# if Told 'wiki $foo', will wiki for 'foo' and return either n lines
+# of output, or if more than one match, a list of matches.
+
+package BotModules::Wiki;
+use vars qw(@ISA);
+@ISA = qw(BotModules);
+1;
+
+# RegisterConfig - Called when initialised, should call registerVariables
+sub RegisterConfig {
+    my $self = shift;
+    $self->SUPER::RegisterConfig(@_);
+    $self->registerVariables(
+			     # [ name, save?, settable? ]
+			     ['linesToJibber', 1, 1, 5 ],
+			     ['matchesToList', 1, 1, 5 ],
+			     ['dbiDsn',        1, 1, ''],
+			     ['dbiHost',       1, 1, ''],
+			     ['dbiUser',       1, 1, ''],
+			     ['dbiPass',       1, 1, ''],
+			     ['dbiOpts',       1, 1, {}],
+			    );
+}
+
+sub Help {
+    my $self = shift;
+    my ($event) = @_;
+    local $";
+    $" = '|';
+    return {
+	    '' => 'Goes and looks stuff up in a Wiki',
+	    'wiki' => "do a wiki search for something"
+	};
+}
+
+sub Told {
+    my $self = shift;
+    my ($event, $message) = @_;
+    if ($message =~ /^\s*wiki\s+(.*?)\s*$/osi) {
+        $self->Wiki($event, $1);
+    } else {
+        return $self->SUPER::Told(@_);
+    }
+    return 0;			# dealt with it...
+}
+
+sub Wiki {
+    my $self = shift;
+    my ($event, $wikiquery) = @_;
+
+    # check things are ok.
+    if (!defined $wikiquery) {
+        $self->say($event, "$event->{'from'}: You can't search the Wiki for nothing.");
+        return;
+    }
+    $wikiquery=~s/[ \?]*$//g ; #Zap trailing space(s) or question mark(s)
+
+    # try for an exact match
+    
+    my $dbh = $self->getDbh();
+    $sth = $dbh->prepare("SELECT id,pagename FROM page WHERE upper(pagename) like upper(concat('%',?,'%'))");
+    $sth->bind_param(1, $wikiquery);
+    $sth->execute();
+
+    if ($sth->rows == 1) {
+	
+	my ($id, $pagename) = $sth->fetchrow_array;
+
+	$sth = $dbh->prepare("SELECT content FROM version WHERE id = ? order by version desc limit 1");
+	$sth->bind_param(1, $id);
+	$sth->execute();
+	my ($content) = $sth->fetchrow_array;
+	
+	$wikiquery=~ s/ /%20/g; # replace with proper URL escaping
+	$wikianswer = join "\n", @{ [ grep { defined $_ } split /\n/, $wikianswer ] }[ 0 .. $self->{linesToJibber} ];
+	
+	if ($pagename eq $wikiquery) {
+	    $wikianswer = "Exact match: $wikiquery\n$wikianswer\n";
+	} else {
+	    $wikianswer = "One hit: $pagename\n$wikianswer\n";
+	}
+
+	$wikianswer .= "More information available at http://wiki.lemonia.org/index.php?pagename=$pagename";
+	
+	$self->say($event, $wikianswer);
+	return;
+
+    } elsif ($sth->rows > 1) {
+
+	my @matches;
+	while ($row = $sth->fetchrow_arrayref) {
+	    push @matches, $row;
+	}
+	
+	my $text = join ',', grep { defined $_ } @matches[ 0 .. $self->{matchesToList} ];
+	
+	if (scalar @matches > $self->{matchesToList}) {
+	    $text .= " and " . (scalar @matches - $self->{matchesToList}) . " more";
+	}
+
+
+    } else {			# nothing found
+
+        $wikiquery=~ s/ /%20/g; # replace with proper URL escaping
+        $wikianswer="Couldn't find it in the Wiki\nMaybe you should add it at http://wiki.lemonia.org/index.php?pagename=".$wikiquery ;
+	$self->say($event, $wikianswer);
+	return;
+    } 
+}
+
