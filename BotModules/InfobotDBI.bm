@@ -17,11 +17,11 @@ sub RegisterConfig {
     my $self = shift;
     $self->SUPER::RegisterConfig(@_);
     $self->registerVariables(
-			     ['dbiDsn', 1, 1, []],
-			     ['dbiHost', 1, 1, []],
-			     ['dbiUser', 1, 1, []],
-			     ['dbiPass', 1, 1, []],
-			     ['dbiOpts', 1, 1, []],
+			     ['dbiDsn', 1, 1, ''],
+			     ['dbiHost', 1, 1, ''],
+			     ['dbiUser', 1, 1, ''],
+			     ['dbiPass', 1, 1, ''],
+			     ['dbiOpts', 1, 1, ''],
 			     );
 }
 
