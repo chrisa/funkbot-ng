@@ -7,8 +7,6 @@ package BotModules::ComicStrip;
 use vars qw(@ISA);
 use GD;
 @ISA = qw(BotModules);
-1;
-
 our @lines;
 
 # RegisterConfig - Called when initialised, should call registerVariables
@@ -18,7 +16,7 @@ sub RegisterConfig {
     $self->registerVariables(
 			     # [ name, save?, settable? ]
 			     ['outputPath',   1, 1, ''], 
-			     ['datePath',     1, 1, ''], 
+			     ['dataPath',     1, 1, ''], 
 			     ['triggerWords', 1, 1, []],
     );
 }
@@ -61,9 +59,8 @@ sub Heard {
 
 sub tryTrigger {
     my ($self, $message) = @_;
-
     for my $trig (@{ $self->{triggerWords} }) {
-	if ($message =~ /^$trig/) {
+	if ($message eq $trig) {
 	    $self->doComic;
 	    @lines = ();
 	}
@@ -73,6 +70,8 @@ sub tryTrigger {
 sub doComic {
     my $self = shift;
     
+    $self->debug("doing a comic");
+
     # pick a random comic backdrop
     unless (opendir DATA, $self->{dataPath}) {
 	$self->debug("couldn't open path $self->{dataPath}: $!");
@@ -80,15 +79,17 @@ sub doComic {
     }
     my @backdrops;
     while (my $backdrop = readdir DATA) {
-	next if $backdrop =~ /^\.+$/;
+	next if ($backdrop =~ /^\.+$/);
 	push @backdrops, $backdrop;
     }
     closedir DATA;
     my $i = int(rand(scalar @backdrops));
     my $bd = $backdrops[$i];
 
+    $self->debug("picked backdrop $bd");
+
     # load data file
-    my $data_file = $self->{dataPath} . '/' . $bd . 'data';
+    my $data_file = $self->{dataPath} . '/' . $bd . '/data';
     unless (open DATAFILE, $data_file) {
 	$self->debug("couldn't open data file $data_file: $!");
 	return undef;
@@ -97,7 +98,7 @@ sub doComic {
     my $datestamp_line = <DATAFILE>;
     my ($dsx, $dsy) = $datestamp_line =~ /(\d+) (\d+)/;
     while (my $slotline = <DATAFILE>) {
-	next unless $slotline =~ /(\d+) (\d+) (\d+) (\d+) (\d+)/;
+	next unless ($slotline =~ /(\d+) (\d+) (\d+) (\d+) (\d+)/);
 	push @slots, {
 		      max => $1,
 		      x1  => $2,
@@ -107,25 +108,35 @@ sub doComic {
 		     };
     }
 
+    $self->debug("read datafile $data_file: " . (scalar @slots));
+    
+    use Data::Dumper;
+    $self->debug( Dumper \@lines );
+
     # get the last n things from @lines, 
     # check they're all short enough
     my $n = ($#lines - scalar @slots);
+
+    $self->debug("n: $n");
+
     for my $slot (@slots) {
-	if ($lines[$n] > $slot->{max}) {
+	if (length $lines[$n] > $slot->{max}) {
 	    # give up 
 	    return undef;
 	}
 	$n++;
     }
 
+    $self->debug("got enough lines");
+
     # spin up GD, load image
-    my $bd_file = $self->{dataPath} . '/' . $bd . 'backdrop.png';
-    my $img = GD::Image->new($bd_file);
-    my $black = $im->colorAllocate(0x00,0x00,0x00);
-    unless (defined $img) {
+    my $bd_file = $self->{dataPath} . '/' . $bd . '/backdrop.png';
+    my $im = GD::Image->new($bd_file);
+    unless (defined $im) {
 	$self->debug("couldn't create GD::Image from $bd_file");
 	return undef;
     }
+    my $black = $im->colorAllocate(0x00,0x00,0x00);
 
     # datestamp
     #   add gd text thing
@@ -135,9 +146,9 @@ sub doComic {
     for my $slot (@slots) {
 	$im->string(
 		    gdSmallFont, 
-		    ($map_x + 8), 
-		    ($map_y - 6), 
-		    $line[$n],
+		    $slot->{x1},
+		    $slot->{y1}, 
+		    $lines[$n]->{line},
 		    $black,
 		   );
 	$n++;
@@ -171,3 +182,5 @@ sub doComic {
     # done!
     return 1;
 }
+
+1;
