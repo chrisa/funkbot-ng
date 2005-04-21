@@ -3,7 +3,7 @@
 # Tell Module                  #
 ################################
 
-# $Id: Tell.bm,v 1.1 2003-10-01 22:44:07 jon Exp $
+# $Id: Tell.bm,v 1.2 2005-04-21 07:34:46 lemon Exp $
 
 # A module for getting the bot to tell people things
 
@@ -104,7 +104,7 @@ sub SendMessage {
 
  	$self->debug("Sending stored message from $from to $to");
 
-	$self->say($event,"Hi, $to. $from wanted you to know the folllowing: $messages{$from}");
+	$self->say($event,"Hi, $to. $from wanted you to know the following: $messages{$from}");
 	
     }
     delete($self->{'tell_messages'}->{$to});
